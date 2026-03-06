@@ -3,7 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 import math
 
-st.set_page_config(page_title="フロントフォークエアバネシミュレーター v2.6", layout="wide")
+st.set_page_config(page_title="フロントフォークエアバネシミュレーター v2.7", layout="wide")
 
 st.title("フロントフォークエアバネシミュレーター")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
@@ -51,15 +51,15 @@ with col_f3:
     n_index = st.slider("空気断熱指数 n", 1.0, 3.0, 2.40, step=0.01)
 
 # ===============================
-# 3. 油面比較(フルストローク油面) / 任意荷重設定
+# 3. 油面・任意ストローク荷重調査
 # ===============================
-st.header("③ 油面比較 ＆ 任意荷重調査")
+st.header("③ 油面比較 ＆ ストローク位置の荷重調査")
 col_o1, col_o2 = st.columns(2)
 with col_o1:
     oil_base = st.slider("基準油面 [mm]", 10, 200, 60)
     oil_comp = st.slider("比較油面 [mm]", 10, 200, 70)
 with col_o2:
-    custom_force = st.number_input("調査したい任意荷重 (2本合計) [kg]", 0.0, 500.0, 150.0, step=1.0)
+    target_stroke = st.number_input("調査したいストローク位置 [mm]", 0.0, float(x_max), 50.0, step=1.0)
 
 # ===============================
 # 計算ロジック
@@ -67,6 +67,7 @@ with col_o2:
 area_air = math.pi * (fork_id / 2)**2
 
 def get_spring_f(x):
+    """金属バネ1本分の反力"""
     x_total = x + preload
     total_change = s_change + preload
     if k_late == 0 or s_change <= 0:
@@ -78,6 +79,7 @@ def get_spring_f(x):
         return f_at_change + k_late * (x_total - total_change)
 
 def get_air_f(x, air_space_at_full):
+    """エアバネ1本分の反力"""
     p0 = 1.033 
     L0 = (air_space_at_full + x_max) * 0.95 
     L_current = L0 - x
@@ -86,65 +88,55 @@ def get_air_f(x, air_space_at_full):
     force = (p1 - p0) * (area_air / 100)
     return force
 
-def total_f_2pcs(x, oil):
-    return (get_spring_f(x) + get_air_f(x, oil)) * 2
-
-def find_stroke_by_force(target_f, oil):
-    search = np.linspace(0, x_max, 1000)
-    for sx in search:
-        if total_f_2pcs(sx, oil) >= target_f:
-            return sx
-    return x_max
-
 # ===============================
 # 4. シミュレーション結果
 # ===============================
 st.header("④ シミュレーション結果比較")
 
-c1, c2 = st.columns(2)
-res_base = x_max - find_stroke_by_force(f_target_total_kg, oil_base)
-res_comp = x_max - find_stroke_by_force(f_target_total_kg, oil_comp)
+def get_total_f_2pcs(x, oil): return (get_spring_f(x) + get_air_f(x, oil)) * 2
 
+c1, c2 = st.columns(2)
 with c1:
-    st.metric(f"基準油面 ({oil_base}mm) 最大荷重時残スト", f"{res_base:.1f} mm")
-    stroke_custom_base = find_stroke_by_force(custom_force, oil_base)
-    st.write(f"任意荷重({custom_force}kg)時のストローク: **{stroke_custom_base:.1f} mm**")
+    f_at_stroke_base = get_total_f_2pcs(target_stroke, oil_base)
+    st.metric(f"基準油面 ({oil_base}mm)", f"{f_at_stroke_base:.1f} kg")
+    st.write(f"ストローク {target_stroke}mm 時の**合成荷重**")
 
 with c2:
-    st.metric(f"比較油面 ({oil_comp}mm) 最大荷重時残スト", f"{res_comp:.1f} mm", delta=f"{res_comp - res_base:.1f} mm")
-    stroke_custom_comp = find_stroke_by_force(custom_force, oil_comp)
-    st.write(f"任意荷重({custom_force}kg)時のストローク: **{stroke_custom_comp:.1f} mm**")
+    f_at_stroke_comp = get_total_f_2pcs(target_stroke, oil_comp)
+    st.metric(f"比較油面 ({oil_comp}mm)", f"{f_at_stroke_comp:.1f} kg", delta=f"{f_at_stroke_comp - f_at_stroke_base:.1f} kg")
+    st.write(f"ストローク {target_stroke}mm 時の**合成荷重**")
+
+# 表示スイッチ
+st.write("---")
+st.subheader("グラフ表示設定")
+show_spring = st.checkbox("金属バネ反力を表示", value=True)
+show_air = st.checkbox("エアバネ反力を表示", value=False)
+show_total = st.checkbox("合成反力を表示", value=True)
 
 # グラフ描画
 x_plot = np.linspace(0, x_max, 500)
 fig = go.Figure()
 
-# 金属バネのみ（2本分）
-f_s_total = [get_spring_f(x) * 2 for x in x_plot]
-fig.add_trace(go.Scatter(x=x_plot, y=f_s_total, name="金属ばね反力(合成)", line=dict(dash='dash', color='silver')))
+if show_spring:
+    y_spring = [get_spring_f(x) * 2 for x in x_plot]
+    fig.add_trace(go.Scatter(x=x_plot, y=y_spring, name="金属バネ反力", line=dict(dash='dash', color='silver')))
 
-def add_comp_trace(oil, name, base_color):
-    x_low = x_plot[x_plot <= s_change]
-    x_high = x_plot[x_plot > s_change]
-    if len(x_high) > 0: x_high = np.insert(x_high, 0, x_low[-1])
-    
-    y_low = [total_f_2pcs(x, oil) for x in x_low]
-    y_high = [total_f_2pcs(x, oil) for x in x_high]
-    
-    # ID重複回避のためnameにユニークな値を付与
-    fig.add_trace(go.Scatter(x=x_low, y=y_low, name=f"{name}(初期)", line=dict(color=base_color, width=4)))
-    if len(x_high) > 0:
-        fig.add_trace(go.Scatter(x=x_high, y=y_high, name=f"{name}(後半)", line=dict(color="orange", width=4)))
+if show_air:
+    y_air_base = [get_air_f(x, oil_base) * 2 for x in x_plot]
+    y_air_comp = [get_air_f(x, oil_comp) * 2 for x in x_plot]
+    fig.add_trace(go.Scatter(x=x_plot, y=y_air_base, name=f"エアバネ単体 ({oil_base}mm)", line=dict(color='lightblue', width=2)))
+    fig.add_trace(go.Scatter(x=x_plot, y=y_air_comp, name=f"エアバネ単体 ({oil_comp}mm)", line=dict(color='pink', width=2)))
 
-add_comp_trace(oil_base, "基準油面", "blue")
-add_comp_trace(oil_comp, "比較油面", "red")
+if show_total:
+    y_total_base = [get_total_f_2pcs(x, oil_base) for x in x_plot]
+    y_total_comp = [get_total_f_2pcs(x, oil_comp) for x in x_plot]
+    fig.add_trace(go.Scatter(x=x_plot, y=y_total_base, name=f"合成反力 ({oil_base}mm)", line=dict(color='blue', width=4)))
+    fig.add_trace(go.Scatter(x=x_plot, y=y_total_comp, name=f"合成反力 ({oil_comp}mm)", line=dict(color='red', width=4)))
 
-# オイルロックエリア表示
-fig.add_vrect(x0=x_max - oil_lock_len, x1=x_max, fillcolor="gray", opacity=0.2, layer="below", annotation_text="オイルロック域")
-
-# ターゲット荷重と任意荷重
+# オイルロック域・ターゲット荷重表示
+fig.add_vrect(x0=x_max - oil_lock_len, x1=x_max, fillcolor="gray", opacity=0.1, layer="below", annotation_text="オイルロック域")
 fig.add_hline(y=f_target_total_kg, line_dash="dot", line_color="green", annotation_text="想定最大荷重")
-fig.add_hline(y=custom_force, line_dash="dash", line_color="purple", annotation_text="調査任意荷重")
+fig.add_vline(x=target_stroke, line_dash="dash", line_color="orange", annotation_text=f"調査位置:{target_stroke}mm")
 
 fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", template="simple_white", height=600)
-st.plotly_chart(fig, use_container_width=True, key="main_chart") # keyを追加してエラー回避
+st.plotly_chart(fig, use_container_width=True, key="fork_sim_chart")
