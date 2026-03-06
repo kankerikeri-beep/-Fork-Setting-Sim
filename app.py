@@ -3,7 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 import math
 
-st.set_page_config(page_title="フロントフォークエアバネシミュレーター v2.4", layout="wide")
+st.set_page_config(page_title="フロントフォークエアバネシミュレーター v2.5", layout="wide")
 
 st.title("フロントフォークエアバネシミュレーター")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
@@ -25,7 +25,6 @@ with col_v1:
     total_m = m_bike + m_rider
 with col_v2:
     caster_angle = st.number_input("キャスター角 (静止時) [deg]", 0.0, 45.0, 25.0, step=0.1)
-    st.caption("※フル制動時のキャスター変化を含めて荷重移動を計算します。")
     decel_g = st.number_input("最大減速G (1.0〜1.5G推奨)", 0.5, 2.0, 1.25, step=0.01)
 with col_v3:
     rad = math.radians(caster_angle)
@@ -62,10 +61,9 @@ st.markdown("""
 """)
 
 # ===============================
-# 3. 油面シミュレーション
+# 3. 油面比較(フルストローク油面)
 # ===============================
-st.header("③ 油面比較（ストローク奥の空気室長）")
-st.info("油面数値(mm)はフルストローク時の空気室の長さ。数値が大きいほど空気が多く、柔らかくなります。")
+st.header("③ 油面比較(フルストローク油面)")
 oil_base = st.slider("基準油面 [mm]", 10, 200, 60)
 oil_comp = st.slider("比較油面 [mm]", 10, 200, 70)
 
@@ -79,6 +77,8 @@ def get_spring_f(x):
     total_change = s_change + preload
     if k_late == 0 or s_change <= 0:
         return k_init * x_total
+    if x_total <= total_change:
+        return k_init * x_total
     else:
         f_at_change = k_init * total_change
         return f_at_change + k_late * (x_total - total_change)
@@ -87,7 +87,7 @@ def get_air_f(x, air_space_at_full):
     p0 = 1.033 
     L0 = (air_space_at_full + x_max) * 0.95 
     L_current = L0 - x
-    if L_current <= 0.1: return 3000.0 # オイルロック
+    if L_current <= 0.1: return 3000.0
     p1 = p0 * ((L0 / L_current) ** n_index)
     force = (p1 - p0) * (area_air / 100)
     return force
@@ -106,7 +106,7 @@ res_base = find_res(oil_base)
 res_comp = find_res(oil_comp)
 
 # ===============================
-# 4. グラフ表示
+# 4. シミュレーション結果比較
 # ===============================
 st.header("④ シミュレーション結果比較")
 
@@ -117,18 +117,44 @@ with c2:
     st.metric(f"比較油面 ({oil_comp}mm) 残スト予測", f"{res_comp:.1f} mm", 
               delta=f"{res_comp - res_base:.1f} mm", delta_color="normal")
 
+# グラフ描画用データ
 x_plot = np.linspace(0, x_max, 500)
-f_s_total = [get_spring_f(x) * 2 for x in x_plot]
-f_t_base_total = [total_f_2pcs(x, oil_base) for x in x_plot]
-f_t_comp_total = [total_f_2pcs(x, oil_comp) for x in x_plot]
+
+def plot_force_curve(oil, name, color):
+    # レート変化点（s_change）でデータを分割して色を変える
+    x_low = x_plot[x_plot <= s_change]
+    x_high = x_plot[x_plot > s_change]
+    
+    # 連続性を保つため、x_highの先頭にx_lowの末尾を追加
+    if len(x_low) > 0 and len(x_high) > 0:
+        x_high = np.insert(x_high, 0, x_low[-1])
+
+    y_low = [total_f_2pcs(x, oil) for x in x_low]
+    y_high = [total_f_2pcs(x, oil) for x in x_high]
+    
+    # 初期レート区間
+    fig.add_trace(go.Scatter(x=x_low, y=y_low, name=f"{name} (初期)", 
+                             line=dict(color=color, width=4)))
+    # 後半レート区間（色を少し変えるか、同じ色で線種を変える等も可能ですが、今回はオレンジ系で強調）
+    if len(x_high) > 0:
+        fig.add_trace(go.Scatter(x=x_high, y=y_high, name=f"{name} (後半)", 
+                                 line=dict(color="orange", width=4, dash="solid")))
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=x_plot, y=f_s_total, name="金属ばね反力 (2本合計)", line=dict(dash='dash', color='silver')))
-fig.add_trace(go.Scatter(x=x_plot, y=f_t_base_total, name=f"基準 {oil_base}mm 合成", line=dict(color='blue', width=4)))
-fig.add_trace(go.Scatter(x=x_plot, y=f_t_comp_total, name=f"比較 {oil_comp}mm 合成", line=dict(color='red', width=4)))
 
+# 基準油面（青系）
+plot_force_curve(oil_base, "基準", "blue")
+# 比較油面（赤系）
+plot_force_curve(oil_comp, "比較", "red")
+
+# ターゲット荷重
 fig.add_hline(y=f_target_total_kg, line_dash="dot", line_color="green", 
               annotation_text=f"荷重ターゲット: {f_target_total_kg:.1f}kg")
 
-fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", template="simple_white", height=600)
+# 変化点に垂直線
+fig.add_vline(x=s_change, line_dash="dash", line_color="gray", annotation_text="レート変化点")
+
+fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", 
+                  template="simple_white", height=600, showlegend=True)
+st.plotly_chart(fig, use_container_width=True)
 st.plotly_chart(fig, use_container_width=True)
