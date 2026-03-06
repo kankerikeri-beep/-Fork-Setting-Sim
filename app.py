@@ -3,13 +3,13 @@ import numpy as np
 import plotly.graph_objects as go
 import math
 
-st.set_page_config(page_title="フロントフォークエアバネシミュレーター v2.8", layout="wide")
+st.set_page_config(page_title="フロントフォークエアバネシミュレーター v2.9", layout="wide")
 
 st.title("フロントフォークエアバネシミュレーター")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
 st.markdown("""
-▶ [ばねレート判定ツールはこちら](https://share.streamlit.io/...)  
-▶ [使用方法解説動画（YouTube）](https://www.youtube.com/watch?v=...)
+▶ [ばねレート判定ツールはこちら](https://spring-rate-tool.streamlit.app/)  
+▶ [使用方法解説動画（こぼれ小話タミケンバーンYouTubeチャンネル）](https://www.youtube.com/@dogtamy-Lean-burn)
 """)
 st.divider()
 
@@ -108,7 +108,7 @@ def find_res_stroke(target_f, oil):
     return 0.0
 
 # ===============================
-# 4. シミュレーション結果比較 (メイン目的：残スト予測)
+# 4. シミュレーション結果比較
 # ===============================
 st.header("④ シミュレーション結果比較")
 
@@ -136,7 +136,7 @@ show_total = st.checkbox("合成反力を表示", value=True)
 x_plot = np.linspace(0, x_max, 500)
 fig = go.Figure()
 
-# 金属バネ描画 (変化点で色変え復活)
+# 金属バネ描画 (変化点で色変え)
 if show_spring:
     x_low = x_plot[x_plot <= s_change]
     x_high = x_plot[x_plot > s_change]
@@ -154,7 +154,7 @@ if show_air:
     fig.add_trace(go.Scatter(x=x_plot, y=y_air_base, name=f"エア単体({oil_base}mm)", line=dict(color='lightblue', width=2)))
     fig.add_trace(go.Scatter(x=x_plot, y=y_air_comp, name=f"エア単体({oil_comp}mm)", line=dict(color='pink', width=2)))
 
-# 合成反力 (変化点で色変え復活)
+# 合成反力 (変化点で色変え)
 if show_total:
     def add_total_trace(oil, name, color_low, color_high):
         x_low = x_plot[x_plot <= s_change]
@@ -175,4 +175,4 @@ fig.add_hline(y=f_target_total_kg, line_dash="dot", line_color="green", annotati
 fig.add_vline(x=target_stroke, line_dash="dash", line_color="orange", annotation_text=f"調査位置:{target_stroke}mm")
 
 fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", template="simple_white", height=600)
-st.plotly_chart(fig, use_container_width=True, key="fork_sim_chart_v28")
+st.plotly_chart(fig, use_container_width=True, key="fork_sim_chart_v29")
