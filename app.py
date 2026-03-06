@@ -3,13 +3,20 @@ import numpy as np
 import plotly.graph_objects as go
 import math
 
-st.set_page_config(page_title="フロントフォークエアバネシミュレーター v2.9", layout="wide")
+st.set_page_config(page_title="フロントフォークエアバネシミュレーター v3.0", layout="wide")
 
 st.title("フロントフォークエアバネシミュレーター")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
+
+# 冒頭案内文の追加
+st.info("""
+YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール、素人構築にて精度向上検証中です。
+異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントフォークエアバネシミュレーター関連の動画コメント欄へお願いいたします。
+""")
+
 st.markdown("""
 ▶ [ばねレート判定ツールはこちら](https://spring-rate-tool.streamlit.app/)  
-▶ [使用方法解説動画（こぼれ小話タミケンバーンYouTubeチャンネル）](https://www.youtube.com/@dogtamy-Lean-burn)
+▶ [YouTube：こぼれ小話タミケンバーン チャンネルTOP](https://www.youtube.com/@dogtamy-Lean-burn)
 """)
 st.divider()
 
@@ -175,4 +182,4 @@ fig.add_hline(y=f_target_total_kg, line_dash="dot", line_color="green", annotati
 fig.add_vline(x=target_stroke, line_dash="dash", line_color="orange", annotation_text=f"調査位置:{target_stroke}mm")
 
 fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", template="simple_white", height=600)
-st.plotly_chart(fig, use_container_width=True, key="fork_sim_chart_v29")
+st.plotly_chart(fig, use_container_width=True, key="fork_sim_chart_v30")
