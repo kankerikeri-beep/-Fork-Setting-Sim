@@ -2,27 +2,14 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import math
-import streamlit.components.v1 as components # 重複を削除してここに集約
 
-# --- Google Analytics 設定 ---
-ga_code = """
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-7NMYYHSSYS"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-7NMYYHSSYS');
-</script>
-"""
-components.html(ga_code, height=0)
-# ----------------------------
-
-# 以降の処理
+# --- 1. ページ設定（※絶対に一番最初に書く） ---
 st.set_page_config(page_title="フロントフォークエアバネシミュレーター v3.0", layout="wide")
+
+# --- 2. タイトルと案内文 ---
 st.title("フロントフォークエアバネシミュレーター")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
 
-# 冒頭案内文の追加
 st.info("""
 YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール、素人構築にて精度向上検証中です。
 異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントフォークエアバネシミュレーター関連の動画コメント欄へお願いいたします。
