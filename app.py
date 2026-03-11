@@ -6,7 +6,7 @@ import math
 # --- 1. ページ設定（※絶対に一番最初に書く） ---
 st.set_page_config(page_title="フロントフォークエアバネシミュレーター v3.0", layout="wide")
 
-# --- 2. タイトルと案内文 ---
+# --- 2. タイトルと案内文（最新リンクに復元） ---
 st.title("フロントフォークエアバネシミュレーター")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
 
@@ -15,8 +15,9 @@ YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール
 異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントフォークエアバネシミュレーター関連の動画コメント欄へお願いいたします。
 """)
 
+# 正しいリンク先に修正
 st.markdown("""
-▶ [ばねレート判定ツールはこちら](https://spring-rate-tool.streamlit.app/)  
+▶ [ばねレート簡易判定ツール v2.5 はこちら](https://spring-rate-tool.streamlit.app/)  
 ▶ [YouTube：こぼれ小話タミケンバーン チャンネルTOP](https://www.youtube.com/@dogtamy-Lean-burn)
 """)
 st.divider()
@@ -144,7 +145,7 @@ show_total = st.checkbox("合成反力を表示", value=True)
 x_plot = np.linspace(0, x_max, 500)
 fig = go.Figure()
 
-# 金属バネ描画 (変化点で色変え)
+# 金属バネ描画
 if show_spring:
     x_low = x_plot[x_plot <= s_change]
     x_high = x_plot[x_plot > s_change]
@@ -162,7 +163,7 @@ if show_air:
     fig.add_trace(go.Scatter(x=x_plot, y=y_air_base, name=f"エア単体({oil_base}mm)", line=dict(color='lightblue', width=2)))
     fig.add_trace(go.Scatter(x=x_plot, y=y_air_comp, name=f"エア単体({oil_comp}mm)", line=dict(color='pink', width=2)))
 
-# 合成反力 (変化点で色変え)
+# 合成反力
 if show_total:
     def add_total_trace(oil, name, color_low, color_high):
         x_low = x_plot[x_plot <= s_change]
