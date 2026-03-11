@@ -2,11 +2,58 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import math
+import json # ★追加：保存・読込用
 
 # --- 1. ページ設定（※絶対に一番最初に書く） ---
 st.set_page_config(page_title="フロントフォークエアバネシミュレーター v3.0", layout="wide")
 
-# --- 2. タイトルと案内文（最新リンクに復元） ---
+# ===============================
+# ★追加：Session State（状態保存）の初期化
+# ===============================
+default_params = {
+    "m_bike": 90.0, "m_rider": 64.0, "caster_angle": 25.0, "decel_g": 1.25,
+    "fork_id": 36.0, "x_max": 97.0, "oil_lock_len": 10.0,
+    "k_init": 0.37, "k_late": 0.98, "s_change": 82.0, "preload": 27.0,
+    "n_index": 2.40, "oil_base": 60, "oil_comp": 70, "target_stroke": 50.0
+}
+# アプリ起動時に1回だけ初期値をセットする
+for key, val in default_params.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
+
+# ===============================
+# ★追加：サイドバー（セッティングの保存と読込）
+# ===============================
+st.sidebar.header("💾 セッティング管理")
+
+# 1. 保存機能：現在のセッションステートをJSON化してダウンロード
+current_settings = {k: st.session_state[k] for k in default_params.keys()}
+json_str = json.dumps(current_settings, indent=4)
+st.sidebar.download_button(
+    label="現在の設定を保存 (.json)",
+    data=json_str,
+    file_name="fork_setting.json",
+    mime="application/json"
+)
+st.sidebar.caption("※現在の各数値をファイルとして保存します。")
+
+st.sidebar.divider()
+
+# 2. 読込機能：JSONファイルをアップロードしてセッションステートを上書き
+uploaded_file = st.sidebar.file_uploader("設定ファイルを読み込む", type="json")
+if uploaded_file is not None:
+    try:
+        loaded_data = json.load(uploaded_file)
+        # 読み込んだデータで内部の数値を一斉に書き換える
+        for k, v in loaded_data.items():
+            if k in st.session_state:
+                st.session_state[k] = v
+        st.sidebar.success("設定を読み込みました！画面に反映されています。")
+    except Exception as e:
+        st.sidebar.error("ファイルの読み込みに失敗しました。形式を確認してください。")
+
+
+# --- 2. タイトルと案内文 ---
 st.title("フロントフォークエアバネシミュレーター")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
 
@@ -15,7 +62,6 @@ YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール
 異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントフォークエアバネシミュレーター関連の動画コメント欄へお願いいたします。
 """)
 
-# 正しいリンク先に修正
 st.markdown("""
 ▶ [ばねレート簡易判定ツール v2.5 はこちら](https://spring-rate-tool.streamlit.app/)  
 ▶ [YouTube：こぼれ小話タミケンバーン チャンネルTOP](https://www.youtube.com/@dogtamy-Lean-burn)
@@ -29,13 +75,24 @@ st.header("① 車両・ライディング条件")
 col_v1, col_v2, col_v3 = st.columns(3)
 
 with col_v1:
-    m_bike = st.number_input("車体重量 [kg]", 0.0, 300.0, 90.0, step=1.0)
-    m_rider = st.number_input("装備体重 [kg]", 0.0, 200.0, 64.0, step=1.0)
+    # ★変更：value引数に st.session_state の値を指定し、ユーザーが変更したら state を更新する
+    m_bike = st.number_input("車体重量 [kg]", 0.0, 300.0, value=float(st.session_state["m_bike"]), step=1.0)
+    st.session_state["m_bike"] = m_bike
+    
+    m_rider = st.number_input("装備体重 [kg]", 0.0, 200.0, value=float(st.session_state["m_rider"]), step=1.0)
+    st.session_state["m_rider"] = m_rider
+    
     total_m = m_bike + m_rider
+
 with col_v2:
-    caster_angle = st.number_input("キャスター角 (静止時) [deg]", 0.0, 45.0, 25.0, step=0.1)
+    caster_angle = st.number_input("キャスター角 (静止時) [deg]", 0.0, 45.0, value=float(st.session_state["caster_angle"]), step=0.1)
+    st.session_state["caster_angle"] = caster_angle
+    
     st.caption("※フル制動時のキャスター変化を含めて荷重移動を計算します。")
-    decel_g = st.number_input("最大減速G (1.0〜1.5G推奨)", 0.5, 2.0, 1.25, step=0.01)
+    
+    decel_g = st.number_input("最大減速G (1.0〜1.5G推奨)", 0.5, 2.0, value=float(st.session_state["decel_g"]), step=0.01)
+    st.session_state["decel_g"] = decel_g
+
 with col_v3:
     rad = math.radians(caster_angle)
     # 荷重補正係数 1.18 (重心移動補正)
@@ -50,16 +107,31 @@ st.header("② フォーク・バネ内部仕様")
 col_f1, col_f2, col_f3 = st.columns(3)
 
 with col_f1:
-    fork_id = st.number_input("フォーク内径 [mm]", 10.0, 60.0, 36.0, step=0.1)
-    x_max = st.number_input("最大ストローク [mm]", 1.0, 250.0, 97.0, step=1.0)
-    oil_lock_len = st.number_input("オイルロック長（フルストロークからの残り） [mm]", 0.0, 50.0, 10.0, step=1.0)
+    fork_id = st.number_input("フォーク内径 [mm]", 10.0, 60.0, value=float(st.session_state["fork_id"]), step=0.1)
+    st.session_state["fork_id"] = fork_id
+    
+    x_max = st.number_input("最大ストローク [mm]", 1.0, 250.0, value=float(st.session_state["x_max"]), step=1.0)
+    st.session_state["x_max"] = x_max
+    
+    oil_lock_len = st.number_input("オイルロック長（フルストロークからの残り） [mm]", 0.0, 50.0, value=float(st.session_state["oil_lock_len"]), step=1.0)
+    st.session_state["oil_lock_len"] = oil_lock_len
+
 with col_f2:
-    k_init = st.number_input("初期レート (1本分) [kg/mm]", 0.0, 20.0, 0.37, step=0.01)
-    k_late = st.number_input("後半レート (1本分) [kg/mm]", 0.0, 20.0, 0.98, step=0.01)
-    s_change = st.number_input("レート変化点 [mm]", 0.0, 250.0, 82.0, step=1.0)
+    k_init = st.number_input("初期レート (1本分) [kg/mm]", 0.0, 20.0, value=float(st.session_state["k_init"]), step=0.01)
+    st.session_state["k_init"] = k_init
+    
+    k_late = st.number_input("後半レート (1本分) [kg/mm]", 0.0, 20.0, value=float(st.session_state["k_late"]), step=0.01)
+    st.session_state["k_late"] = k_late
+    
+    s_change = st.number_input("レート変化点 [mm]", 0.0, 250.0, value=float(st.session_state["s_change"]), step=1.0)
+    st.session_state["s_change"] = s_change
+
 with col_f3:
-    preload = st.number_input("プリロード [mm]", 0.0, 50.0, 27.0, step=1.0)
-    n_index = st.slider("空気断熱指数 n", 1.0, 3.0, 2.40, step=0.01)
+    preload = st.number_input("プリロード [mm]", 0.0, 50.0, value=float(st.session_state["preload"]), step=1.0)
+    st.session_state["preload"] = preload
+    
+    n_index = st.slider("空気断熱指数 n", 1.0, 3.0, value=float(st.session_state["n_index"]), step=0.01)
+    st.session_state["n_index"] = n_index
 
 st.markdown("""
 **【空気断熱指数 $n$ の目安】**
@@ -76,11 +148,17 @@ st.markdown("""
 # ===============================
 st.header("③ 油面比較 ＆ ストローク位置の荷重調査")
 col_o1, col_o2 = st.columns(2)
+
 with col_o1:
-    oil_base = st.slider("基準油面 [mm]", 10, 200, 60)
-    oil_comp = st.slider("比較油面 [mm]", 10, 200, 70)
+    oil_base = st.slider("基準油面 [mm]", 10, 200, value=int(st.session_state["oil_base"]))
+    st.session_state["oil_base"] = oil_base
+    
+    oil_comp = st.slider("比較油面 [mm]", 10, 200, value=int(st.session_state["oil_comp"]))
+    st.session_state["oil_comp"] = oil_comp
+
 with col_o2:
-    target_stroke = st.number_input("調査したいストローク位置 [mm]（補足機能）", 0.0, float(x_max), 50.0, step=1.0)
+    target_stroke = st.number_input("調査したいストローク位置 [mm]（補足機能）", 0.0, float(x_max), value=float(st.session_state["target_stroke"]), step=1.0)
+    st.session_state["target_stroke"] = target_stroke
 
 # ===============================
 # 計算ロジック
