@@ -2,15 +2,17 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import math
-import json # ★追加：保存・読込用
+import json
+import pandas as pd # AI連携のCSV出力用
 
 # --- 1. ページ設定（※絶対に一番最初に書く） ---
-st.set_page_config(page_title="フロントフォークエアバネシミュレーター v3.0", layout="wide")
+st.set_page_config(page_title="フロントサスシミュレーター/AI連携ツール", layout="wide")
 
 # ===============================
-# ★追加：Session State（状態保存）の初期化
+# Session State（状態保存）の初期化
 # ===============================
 default_params = {
+    "setting_name": "260315_基本セット", # ★ファイル名用の変数を追加
     "m_bike": 90.0, "m_rider": 64.0, "caster_angle": 25.0, "decel_g": 1.25,
     "fork_id": 36.0, "x_max": 97.0, "oil_lock_len": 10.0,
     "k_init": 0.37, "k_late": 0.98, "s_change": 82.0, "preload": 27.0,
@@ -22,51 +24,60 @@ for key, val in default_params.items():
         st.session_state[key] = val
 
 # ===============================
-# ★追加：サイドバー（セッティングの保存と読込）
+# 2. タイトルと案内文
 # ===============================
-st.sidebar.header("💾 セッティング管理")
-
-# 1. 保存機能：現在のセッションステートをJSON化してダウンロード
-current_settings = {k: st.session_state[k] for k in default_params.keys()}
-json_str = json.dumps(current_settings, indent=4)
-st.sidebar.download_button(
-    label="現在の設定を保存 (.json)",
-    data=json_str,
-    file_name="fork_setting.json",
-    mime="application/json"
-)
-st.sidebar.caption("※現在の各数値をファイルとして保存します。")
-
-st.sidebar.divider()
-
-# 2. 読込機能：JSONファイルをアップロードしてセッションステートを上書き
-uploaded_file = st.sidebar.file_uploader("設定ファイルを読み込む", type="json")
-if uploaded_file is not None:
-    try:
-        loaded_data = json.load(uploaded_file)
-        # 読み込んだデータで内部の数値を一斉に書き換える
-        for k, v in loaded_data.items():
-            if k in st.session_state:
-                st.session_state[k] = v
-        st.sidebar.success("設定を読み込みました！画面に反映されています。")
-    except Exception as e:
-        st.sidebar.error("ファイルの読み込みに失敗しました。形式を確認してください。")
-
-
-# --- 2. タイトルと案内文 ---
-st.title("フロントフォークエアバネシミュレーター")
+st.title("フロントサスシミュレーター/AI連携ツール")
 st.caption("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール")
 
 st.info("""
 YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール、素人構築にて精度向上検証中です。
-異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントフォークエアバネシミュレーター関連の動画コメント欄へお願いいたします。
+異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントサスシミュレーター関連の動画コメント欄へお願いいたします。
 """)
 
 st.markdown("""
 ▶ [ばねレート簡易判定ツール v2.5 はこちら](https://spring-rate-tool.streamlit.app/)  
 ▶ [YouTube：こぼれ小話タミケンバーン チャンネルTOP](https://www.youtube.com/@dogtamy-Lean-burn)
 """)
+
+# ★追加：セッティング名の入力（①の上）
+setting_name_input = st.text_input("📝 セッティング名（保存ファイル名に反映されます）", value=st.session_state["setting_name"])
+st.session_state["setting_name"] = setting_name_input
+
 st.divider()
+
+# ===============================
+# ★サイドバー（フロントセッティング管理）
+# ===============================
+with st.sidebar:
+    st.header("💾 フロントセッティング管理")
+    
+    # 1. 保存機能
+    current_settings = {k: st.session_state[k] for k in default_params.keys()}
+    json_str = json.dumps(current_settings, indent=4)
+    # 入力されたセッティング名をファイル名に適用
+    export_file_name = f"{st.session_state['setting_name']}.json"
+    
+    st.download_button(
+        label="現在の設定を保存 (.json)",
+        data=json_str,
+        file_name=export_file_name,
+        mime="application/json"
+    )
+    st.caption("※現在の各数値をファイルとして保存します。")
+
+    st.divider()
+
+    # 2. 読込機能
+    uploaded_file = st.file_uploader("設定ファイルを読み込む", type="json")
+    if uploaded_file is not None:
+        try:
+            loaded_data = json.load(uploaded_file)
+            for k, v in loaded_data.items():
+                if k in st.session_state:
+                    st.session_state[k] = v
+            st.success(f"「{st.session_state.get('setting_name', '設定')}」を読み込みました！")
+        except Exception as e:
+            st.error("ファイルの読み込みに失敗しました。形式を確認してください。")
 
 # ===============================
 # 1. 車両・ライディング条件
@@ -75,27 +86,21 @@ st.header("① 車両・ライディング条件")
 col_v1, col_v2, col_v3 = st.columns(3)
 
 with col_v1:
-    # ★変更：value引数に st.session_state の値を指定し、ユーザーが変更したら state を更新する
     m_bike = st.number_input("車体重量 [kg]", 0.0, 300.0, value=float(st.session_state["m_bike"]), step=1.0)
     st.session_state["m_bike"] = m_bike
-    
     m_rider = st.number_input("装備体重 [kg]", 0.0, 200.0, value=float(st.session_state["m_rider"]), step=1.0)
     st.session_state["m_rider"] = m_rider
-    
     total_m = m_bike + m_rider
 
 with col_v2:
     caster_angle = st.number_input("キャスター角 (静止時) [deg]", 0.0, 45.0, value=float(st.session_state["caster_angle"]), step=0.1)
     st.session_state["caster_angle"] = caster_angle
-    
     st.caption("※フル制動時のキャスター変化を含めて荷重移動を計算します。")
-    
     decel_g = st.number_input("最大減速G (1.0〜1.5G推奨)", 0.5, 2.0, value=float(st.session_state["decel_g"]), step=0.01)
     st.session_state["decel_g"] = decel_g
 
 with col_v3:
     rad = math.radians(caster_angle)
-    # 荷重補正係数 1.18 (重心移動補正)
     f_target_total_kg = (total_m * math.cos(rad) + total_m * decel_g * math.sin(rad)) * 1.18
     st.metric("フォーク全体への想定最大荷重", f"{f_target_total_kg:.1f} kg")
     st.write("**（車重＋G換算＋重心移動補正：1.18）**")
@@ -109,38 +114,28 @@ col_f1, col_f2, col_f3 = st.columns(3)
 with col_f1:
     fork_id = st.number_input("フォーク内径 [mm]", 10.0, 60.0, value=float(st.session_state["fork_id"]), step=0.1)
     st.session_state["fork_id"] = fork_id
-    
     x_max = st.number_input("最大ストローク [mm]", 1.0, 250.0, value=float(st.session_state["x_max"]), step=1.0)
     st.session_state["x_max"] = x_max
-    
     oil_lock_len = st.number_input("オイルロック長（フルストロークからの残り） [mm]", 0.0, 50.0, value=float(st.session_state["oil_lock_len"]), step=1.0)
     st.session_state["oil_lock_len"] = oil_lock_len
 
 with col_f2:
     k_init = st.number_input("初期レート (1本分) [kg/mm]", 0.0, 20.0, value=float(st.session_state["k_init"]), step=0.01)
     st.session_state["k_init"] = k_init
-    
     k_late = st.number_input("後半レート (1本分) [kg/mm]", 0.0, 20.0, value=float(st.session_state["k_late"]), step=0.01)
     st.session_state["k_late"] = k_late
-    
     s_change = st.number_input("レート変化点 [mm]", 0.0, 250.0, value=float(st.session_state["s_change"]), step=1.0)
     st.session_state["s_change"] = s_change
 
 with col_f3:
     preload = st.number_input("プリロード [mm]", 0.0, 50.0, value=float(st.session_state["preload"]), step=1.0)
     st.session_state["preload"] = preload
-    
     n_index = st.slider("空気断熱指数 n", 1.0, 3.0, value=float(st.session_state["n_index"]), step=0.01)
     st.session_state["n_index"] = n_index
 
 st.markdown("""
 **【空気断熱指数 $n$ の目安】**
-* **0% (理論値) 1.60**：非常に緩やか。奥での踏ん張りが足りない。
-* **25% 占拠 1.80 〜 1.95**：正立フォークなどでバネが細い場合。
-* **50% 占拠 2.10 〜 2.50**：倒立フォークや、太いカラー・インナーが入っている状態。
-* **60% 占拠 2.50 〜 2.70**：ほぼオイルロックに近い、極めて急激な立ち上がり。
-
-※本数値は、オイルによる動的減衰抵抗を空気の反力として擬似的に合算したセッティング指標です。
+* **0% (理論値) 1.60** / **25% 占拠 1.80 〜 1.95** / **50% 占拠 2.10 〜 2.50** / **60% 占拠 2.50 〜 2.70**
 """)
 
 # ===============================
@@ -152,7 +147,6 @@ col_o1, col_o2 = st.columns(2)
 with col_o1:
     oil_base = st.slider("基準油面 [mm]", 10, 200, value=int(st.session_state["oil_base"]))
     st.session_state["oil_base"] = oil_base
-    
     oil_comp = st.slider("比較油面 [mm]", 10, 200, value=int(st.session_state["oil_comp"]))
     st.session_state["oil_comp"] = oil_comp
 
@@ -161,7 +155,7 @@ with col_o2:
     st.session_state["target_stroke"] = target_stroke
 
 # ===============================
-# 計算ロジック
+# 計算ロジック & グラフ描画
 # ===============================
 area_air = math.pi * (fork_id / 2)**2
 
@@ -173,8 +167,7 @@ def get_spring_f(x):
     if x_total <= total_change:
         return k_init * x_total
     else:
-        f_at_change = k_init * total_change
-        return f_at_change + k_late * (x_total - total_change)
+        return k_init * total_change + k_late * (x_total - total_change)
 
 def get_air_f(x, air_space_at_full):
     p0 = 1.033 
@@ -182,8 +175,7 @@ def get_air_f(x, air_space_at_full):
     L_current = L0 - x
     if L_current <= 0.1: return 3000.0
     p1 = p0 * ((L0 / L_current) ** n_index)
-    force = (p1 - p0) * (area_air / 100)
-    return force
+    return (p1 - p0) * (area_air / 100)
 
 def total_f_2pcs(x, oil): return (get_spring_f(x) + get_air_f(x, oil)) * 2
 
@@ -194,72 +186,138 @@ def find_res_stroke(target_f, oil):
             return max(0.0, x_max - sx)
     return 0.0
 
-# ===============================
-# 4. シミュレーション結果比較
-# ===============================
 st.header("④ シミュレーション結果比較")
-
 c1, c2 = st.columns(2)
 res_base = find_res_stroke(f_target_total_kg, oil_base)
 res_comp = find_res_stroke(f_target_total_kg, oil_comp)
 
 with c1:
     st.metric(f"基準油面 ({oil_base}mm) 最大荷重時残スト", f"{res_base:.1f} mm")
-    f_at_custom = total_f_2pcs(target_stroke, oil_base)
-    st.write(f"（補足）ストローク {target_stroke}mm 時の荷重: **{f_at_custom:.1f} kg**")
+    st.write(f"（補足）ストローク {target_stroke}mm 時の荷重: **{total_f_2pcs(target_stroke, oil_base):.1f} kg**")
 
 with c2:
     st.metric(f"比較油面 ({oil_comp}mm) 最大荷重時残スト", f"{res_comp:.1f} mm", delta=f"{res_comp - res_base:.1f} mm")
-    f_at_custom_comp = total_f_2pcs(target_stroke, oil_comp)
-    st.write(f"（補足）ストローク {target_stroke}mm 時の荷重: **{f_at_custom_comp:.1f} kg**")
+    st.write(f"（補足）ストローク {target_stroke}mm 時の荷重: **{total_f_2pcs(target_stroke, oil_comp):.1f} kg**")
 
-# 表示設定
 st.write("---")
 show_spring = st.checkbox("金属バネ反力を表示", value=True)
 show_air = st.checkbox("エアバネ反力を表示", value=False)
 show_total = st.checkbox("合成反力を表示", value=True)
 
-# グラフ描画
 x_plot = np.linspace(0, x_max, 500)
 fig = go.Figure()
 
-# 金属バネ描画
 if show_spring:
-    x_low = x_plot[x_plot <= s_change]
-    x_high = x_plot[x_plot > s_change]
-    if len(x_high) > 0: x_high = np.insert(x_high, 0, x_low[-1])
-    y_low_s = [get_spring_f(x) * 2 for x in x_low]
-    y_high_s = [get_spring_f(x) * 2 for x in x_high]
-    fig.add_trace(go.Scatter(x=x_low, y=y_low_s, name="金属バネ(初期)", line=dict(dash='dash', color='silver')))
-    if len(x_high) > 0:
-        fig.add_trace(go.Scatter(x=x_high, y=y_high_s, name="金属バネ(後半)", line=dict(dash='dash', color='gray')))
+    y_s = [get_spring_f(x) * 2 for x in x_plot]
+    fig.add_trace(go.Scatter(x=x_plot, y=y_s, name="金属バネ(両側)", line=dict(dash='dash', color='silver')))
 
-# エアバネ単体
 if show_air:
-    y_air_base = [get_air_f(x, oil_base) * 2 for x in x_plot]
-    y_air_comp = [get_air_f(x, oil_comp) * 2 for x in x_plot]
-    fig.add_trace(go.Scatter(x=x_plot, y=y_air_base, name=f"エア単体({oil_base}mm)", line=dict(color='lightblue', width=2)))
-    fig.add_trace(go.Scatter(x=x_plot, y=y_air_comp, name=f"エア単体({oil_comp}mm)", line=dict(color='pink', width=2)))
+    fig.add_trace(go.Scatter(x=x_plot, y=[get_air_f(x, oil_base) * 2 for x in x_plot], name=f"エア単体({oil_base}mm)", line=dict(color='lightblue', width=2)))
+    fig.add_trace(go.Scatter(x=x_plot, y=[get_air_f(x, oil_comp) * 2 for x in x_plot], name=f"エア単体({oil_comp}mm)", line=dict(color='pink', width=2)))
 
-# 合成反力
 if show_total:
-    def add_total_trace(oil, name, color_low, color_high):
-        x_low = x_plot[x_plot <= s_change]
-        x_high = x_plot[x_plot > s_change]
-        if len(x_high) > 0: x_high = np.insert(x_high, 0, x_low[-1])
-        y_low = [total_f_2pcs(x, oil) for x in x_low]
-        y_high = [total_f_2pcs(x, oil) for x in x_high]
-        fig.add_trace(go.Scatter(x=x_low, y=y_low, name=f"{name}(初期)", line=dict(color=color_low, width=4)))
-        if len(x_high) > 0:
-            fig.add_trace(go.Scatter(x=x_high, y=y_high, name=f"{name}(後半)", line=dict(color=color_high, width=4)))
-    
-    add_total_trace(oil_base, "基準合成", "blue", "royalblue")
-    add_total_trace(oil_comp, "比較合成", "red", "indianred")
+    fig.add_trace(go.Scatter(x=x_plot, y=[total_f_2pcs(x, oil_base) for x in x_plot], name="基準合成", line=dict(color="blue", width=4)))
+    fig.add_trace(go.Scatter(x=x_plot, y=[total_f_2pcs(x, oil_comp) for x in x_plot], name="比較合成", line=dict(color="red", width=4)))
 
-# 補助線
 fig.add_vrect(x0=x_max - oil_lock_len, x1=x_max, fillcolor="gray", opacity=0.1, layer="below", annotation_text="オイルロック域")
 fig.add_hline(y=f_target_total_kg, line_dash="dot", line_color="green", annotation_text="想定最大荷重")
-fig.add_vline(x=target_stroke, line_dash="dash", line_color="orange", annotation_text=f"調査位置:{target_stroke}mm")
-
 fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", template="simple_white", height=600)
-st.plotly_chart(fig, use_container_width=True, key="fork_sim_chart_v30")
+st.plotly_chart(fig, use_container_width=True)
+
+# ===============================
+# ★新機能：AI連携用データ作成 ＆ プロンプト生成
+# ===============================
+st.divider()
+st.header("⑤ AI解析用プロンプト自動生成（Gemini連携用）")
+st.info("このセクションで入力した情報とシミュレーターの数値を合体させ、Gemini（AI）へ渡す完璧な指示書を自動生成します。")
+
+col_ai1, col_ai2 = st.columns(2)
+
+with col_ai1:
+    st.subheader("A. セッティングの体感・状態入力")
+    track_name = st.text_input("サーキット名（任意）", value="", placeholder="例：近畿スポーツランド、鈴鹿サーキット")
+    tire_info = st.text_input("タイヤ銘柄・状態（任意）", value="", placeholder="例：BT-601SS フロント逆履き 5時間使用")
+    
+    st.write("ダンピング（減衰）の体感 ※1:最弱/速い 〜 10:最強/遅い")
+    comp_level = st.slider("圧側（コンプ）感覚", 1, 10, 5)
+    reb_level = st.slider("伸び側（リバウンド）感覚", 1, 10, 5)
+
+with col_ai2:
+    st.subheader("B. 解析したい課題の入力")
+    phase_selection = st.selectbox(
+        "課題が発生しているフェーズ（場所）",
+        ["進入・フルブレーキング", "旋回中・コーナリング", "切り返し・S字", "立ち上がり・アクセルオン", "ストレート・全開加速"]
+    )
+    user_comment = st.text_area(
+        "具体的な悩み・症状", 
+        value="例：1コーナー進入の奥でフロントが突っ張り、戻ってこない感覚があり怖い。"
+    )
+
+st.write("---")
+st.subheader("C. 出力とAIへの指示生成")
+
+col_out1, col_out2, col_out3 = st.columns([1, 1, 1.5])
+
+# 【CSV出力機能】
+with col_out1:
+    st.write("**STEP 1: 反力テーブルの出力**")
+    st.caption("シミュレーターで計算したストロークごとの反力データをCSVでダウンロードします。")
+    
+    stroke_range = np.arange(0, x_max + 1, 1.0)
+    df_export = pd.DataFrame({
+        "Stroke_mm": stroke_range,
+        "Total_Force_Base_2pcs_N": [total_f_2pcs(x, oil_base) * 9.80665 for x in stroke_range],
+        "Total_Force_Comp_2pcs_N": [total_f_2pcs(x, oil_comp) * 9.80665 for x in stroke_range]
+    })
+    
+    csv_data = df_export.to_csv(index=False).encode('utf-8')
+    export_csv_name = f"ForceTable_{st.session_state['setting_name']}.csv"
+    st.download_button(
+        label="反力テーブルをダウンロード",
+        data=csv_data,
+        file_name=export_csv_name,
+        mime="text/csv"
+    )
+
+# 【燃調マップ添付の案内】
+with col_out2:
+    st.write("**STEP 2: 燃調マップの準備（任意）**")
+    st.caption("セッティングツール等の「燃調マップ画面のスクショ」があれば用意してください。AIから燃調マップの具体的な変更数値の提案が可能になります。")
+
+# 【プロンプト生成機能】
+with col_out3:
+    st.write("**STEP 3: プロンプトのコピー**")
+    st.caption("以下のテキストをコピーしてください。")
+    
+    prompt_text = f"""あなたはワークスチームのチーフ・サスペンションエンジニア 兼 エンジンチューナーです。
+以下の【セッティング情報】と添付ファイル【反力テーブル(CSV)】【Droggerログ(CSV)】【燃調マップ画像(任意)】を掛け合わせ、論理的な解析とアドバイスを行ってください。
+
+【車両・サスセッティング情報】
+・サーキット名: {track_name}
+・ライダー込重量: {total_m} kg / 想定最大減速G: {decel_g} G
+・バネレート: {k_init} kg/mm (後半: {k_late} kg/mm)
+・プリロード: {preload} mm / 油面: {oil_base} mm
+・減衰感覚(1-10): 圧側 {comp_level} / 伸び側 {reb_level}
+・タイヤ情報: {tire_info}
+
+【今回のターゲット課題】
+・発生フェーズ: {phase_selection}
+・具体的な悩み: {user_comment}
+
+【解析・回答のステップ】
+AIは以下の1〜5の順序で必ず思考し、結果を出力してください。
+1. [データ抽出とコース把握]: DroggerログのGPSデータから該当コーナーを特定し（固有名詞を使用）、異常ラップは除外すること。
+2. [倒し込みの車高バランス]: 進入から倒し込んで旋回が引き出される瞬間の、前後ストローク位置（ピッチング姿勢）が適正か評価すること。
+3. [アクセルONとリアのスクワット]: スロットル操作時のリアの沈み込み量とフロントの伸びをデータから確認すること。
+4. [燃調とレスポンスの評価]: Droggerの「ThrottolePos」「Rpm」「Afr」の波形を分析し、該当フェーズでのトルク変動（ドンツキや失速）が、サスペンションのトラクション抜けの原因になっていないか分析すること。
+5. [原因究明と解決策]: 「{user_comment}」を解決するため、サスセッティング案（バネ、油面、減衰等）を提案し、燃調マップ画像が添付されている場合は「どの開度・回転域のセルをどう増減すべきか」の具体的な修正案も提示すること。"""
+
+    st.code(prompt_text, language="")
+
+# 【Gemini送信前の最終チェックリスト】
+st.write("---")
+st.info("💡 **Geminiへ投げる準備はできましたか？ 以下のデータをまとめてGeminiのチャット欄に貼り付けて送信してください。**\n"
+        "1. 📋 **コピーしたプロンプト**（STEP 3でコピーしたもの）\n"
+        "2. 📊 **反力テーブル.csv**（STEP 1でダウンロードしたもの）\n"
+        "3. 📈 **Droggerログ.csv**（お手元にある実際の走行データ）\n"
+        "4. 🖼️ **燃調マップ画面のスクショ**（任意：STEP 2で用意した場合のみ）")
