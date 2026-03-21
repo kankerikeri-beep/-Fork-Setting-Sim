@@ -546,7 +546,7 @@ if st.button("AIに解析させる（数十秒かかります）", type="primary
             try:
                 # APIの初期化
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-pro')
 
                 # 反力テーブルのテキスト化
                 stroke_range_text = df_export.to_csv(index=False)
