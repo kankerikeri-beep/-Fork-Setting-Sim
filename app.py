@@ -532,37 +532,64 @@ with col_out2:
     else:
         uploaded_logs = st.file_uploader("比較する2つの走行ログ(CSV)をアップロードしてください", type="csv", accept_multiple_files=True)
 
+    # ==========================================
+    # ★新規追加：CSVの列を自動検出し、解析項目を自由に選べるUI
+    # ==========================================
+    selected_cols = []
+    custom_sensor_memo = ""
+    
+    if uploaded_logs:
+        # プレビュー用に最初のファイルからヘッダー（列名）だけを取得
+        preview_file = uploaded_logs[0] if isinstance(uploaded_logs, list) else uploaded_logs
+        try:
+            preview_df = pd.read_csv(preview_file, nrows=0) # データ本体は読まず列名だけ瞬時に取得
+            all_cols = preview_df.columns.tolist()
+            preview_file.seek(0) # 次の読み込みのためにファイルポインタをリセット（超重要）
+            
+            # ドロガー等でよく使われる列名があれば、デフォルトで選択状態にしておく
+            typical_cols = ['Lap', 'RunTime', 'LapTime', 'ThrottoleP', 'Speed', 'Front', 'Rear', 'Rpm', 'Afr', 'T1', 'T2', 'T3']
+            default_cols = [c for c in typical_cols if c in all_cols]
+            
+            st.markdown("##### ⚙️ ロガーデータ抽出設定（HRC・カスタムセンサー対応）")
+            st.caption("アップロードされたCSVから項目を自動検出しました。AIに渡す列を追加・削除できます。")
+            
+            selected_cols = st.multiselect(
+                "📊 AIに解析させるデータ列を選んでください", 
+                options=all_cols, 
+                default=default_cols,
+                help="GPSの緯度経度など、不要なデータを外すとAIがサスの動きに集中しやすくなります。"
+            )
+            
+            custom_sensor_memo = st.text_input(
+                "📝 カスタムセンサー（T1等）や、特殊な列名の意味をAIに教える（任意）", 
+                placeholder="例：T1はオイル温度、T2はシリンダー温度。Front_S はフロントストロークの事です。"
+            )
+        except Exception as e:
+            st.error("CSVファイルの列名読み込みに失敗しました。ファイル形式を確認してください。")
+
 st.write("---")
 st.write("**STEP 3: 解析設定と実行**")
 
-# ★追加1：AIの解析アプローチの選択
+# AIの解析アプローチの選択（フィーリング重視をデフォルトに）
 analysis_focus = st.radio(
     "🧠 AIの解析アプローチを選択してください",
     [
-        "【バランス型】ロガー波形とシミュレーターの反力テーブルを総合して解析",
-        "【実走・フィーリング重視】反力数値は参考程度にし、実際の波形変化とライダーの悩みを最優先"
+        "【実走・フィーリング重視】実際のサスの動きの流れ（フロー）と、ライダーの悩みの解決を最優先する ※推奨",
+        "【バランス型】ロガー波形の数値とシミュレーターの反力テーブルの理論値を総合して解析する"
     ],
-    help="シミュレーターの理論値にAIが引っ張られすぎる場合は「実走・フィーリング重視」を選択してください。"
-)
-
-# ★追加2：通信モードの3択
-api_mode = st.radio(
-    "📡 APIの送信・データ処理モードを選択",
-    [
-        "1. 【無償】手動カット済みデータ送信（間引きなし・高精度） ※推奨", 
-        "2. 【無償】自動圧縮して送信（長時間のログ用、精度低下あり）",
-        "3. 【有償】フルデータをそのまま送信（Google AI Studioで課金設定済みの方限定）"
-    ]
+    help="AIがシミュレーターの数値に引っ張られすぎる場合は「フィーリング重視」を選択してください。"
 )
 
 # AI解析実行ボタン
-if st.button("AIに解析させる（数十秒かかります）", type="primary"):
+if st.button("AIに事前処理（ADA）をかけて解析させる", type="primary"):
     if not uploaded_logs:
         st.warning("⚠️ 走行ログ(CSV)をアップロードしてください。")
+    elif not selected_cols:
+        st.warning("⚠️ 解析するデータ列（カラム）を1つ以上選択してください。")
     elif "GEMINI_API_KEY" not in st.secrets:
         st.error("⚠️ APIキーが設定されていません。StreamlitのSecretsを確認してください。")
     else:
-        with st.spinner("ワークスエンジニアがデータを解析中..."):
+        with st.spinner("データエンジニア(Python)がノイズ除去と特徴抽出を実行中..."):
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -570,38 +597,65 @@ if st.button("AIに解析させる（数十秒かかります）", type="primary
                 # 反力テーブルのテキスト化
                 stroke_range_text = df_export.to_csv(index=False)
 
-                # 走行ログの読み込みとテキスト化（モードによる分岐）
+                # --- ★ここから：Pythonによる高度な事前処理（疑似ADA・汎用版） ---
                 log_contents = ""
                 logs_to_process = uploaded_logs if isinstance(uploaded_logs, list) else [uploaded_logs]
 
                 for uploaded_log in logs_to_process:
+                    uploaded_log.seek(0) # 念のためファイルポインタをリセット
                     log_df = pd.read_csv(uploaded_log)
+                    ada_summary = []
+                    ada_summary.append(f"--- File: {uploaded_log.name} の事前処理レポート ---")
                     
-                    # モード2：自動圧縮（間引き）が選ばれた場合のみ処理
-                    if "自動圧縮" in api_mode:
-                        row_count = len(log_df)
-                        if row_count > 5000:
-                            step = row_count // 5000 
-                            log_df = log_df.iloc[::step, :]
-                            st.toast(f"ℹ️ {uploaded_log.name}: {row_count}行から{len(log_df)}行に自動圧縮しました。")
+                    # ユーザーが画面で選択した列だけを抽出
+                    exist_cols = [c for c in selected_cols if c in log_df.columns]
                     
-                    log_contents += f"\n--- File: {uploaded_log.name} ---\n"
-                    log_contents += log_df.to_csv(index=False)
+                    if exist_cols:
+                        # 1. ピーク値の絶対確保（選択された全数値データに対して自動実行！）
+                        ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
+                        num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
+                        for col in num_cols:
+                            max_val = log_df[col].max()
+                            min_val = log_df[col].min()
+                            if pd.notna(max_val) and pd.notna(min_val): # 空データ(NaN)は除外
+                                ada_summary.append(f"{col} 最大値: {max_val:.2f}, 最小値: {min_val:.2f}")
 
-                # 解析アプローチに基づくプロンプトの微調整
+                        # 2. 流れ（Flow）を捉えるためのトレンド波形生成
+                        df_trend = log_df[exist_cols].copy()
+                        
+                        # 生データのギザギザ（ノイズ）を移動平均(5行分)で滑らかにする
+                        df_trend[num_cols] = df_trend[num_cols].rolling(window=5, min_periods=1).mean()
+                        
+                        # AIが「流れ」を読めるように全体を最大300行程度に圧縮
+                        step = max(1, len(df_trend) // 300)
+                        df_trend_sampled = df_trend.iloc[::step, :]
+                        
+                        ada_summary.append("\n【2. トレンド波形データ（ノイズ除去・フロー抽出版）】")
+                        ada_summary.append("※以下のデータはサスペンションの「動きの流れ（Flow）」をAIが読み取るため、ノイズを除去し時系列順に圧縮したものです。")
+                        ada_summary.append(df_trend_sampled.to_csv(index=False))
+                    
+                    log_contents += "\n".join(ada_summary) + "\n"
+                # --- 事前処理ここまで ---
+
+                # 解析アプローチとカスタムセンサーの補足設定
                 focus_instruction = ""
-                if "実走・フィーリング重視" in analysis_focus:
-                    focus_instruction = "\n【重要事項】今回はシミュレーターの反力数値（理論値）に固執せず、実際の走行ログの波形変化と、ライダーの具体的な悩み（フィーリング）の解決を最優先して結論を出してください。\n"
+                if "フィーリング重視" in analysis_focus:
+                    focus_instruction = "\n【最重要指示】今回はシミュレーターの反力テーブルの数値（理論値）に固執しないでください。添付した「トレンド波形データ」から読み取れる【実際のサスの動きの流れ（ピッチングのフロー）】と、ユーザーの具体的な悩み（フィーリング）を最優先にすり合わせ、論理的な解決策を提示してください。\n"
+                
+                sensor_instruction = ""
+                if custom_sensor_memo:
+                    sensor_instruction = f"\n【カスタムセンサー・列名の補足情報（重要）】\nユーザーからの補足: {custom_sensor_memo}\n"
 
                 # すべてのデータを合体させて裏側で送信
                 full_prompt = f"""
                 {prompt_text}
                 {focus_instruction}
+                {sensor_instruction}
 
                 以下は計算された【反力テーブル】です：
                 {stroke_range_text}
 
-                以下はアップロードされた【走行ログデータ】です：
+                以下はPythonデータエンジニアによって事前処理された【走行ログ要約データ】です：
                 {log_contents}
                 """
 
@@ -615,6 +669,5 @@ if st.button("AIに解析させる（数十秒かかります）", type="primary
 
             except Exception as e:
                 st.error(f"❌ 解析中にエラーが発生しました: {e}")
-                st.caption("※「Quota exceeded」エラーが出る場合は、データが大きすぎます。CSVをさらに短くカットするか、「自動圧縮」モードをお試しください。")
 
 st.caption("※解析にはGoogle Gemini APIを使用しています。入力されたデータは今回限りの解析のみに使用されます。")
