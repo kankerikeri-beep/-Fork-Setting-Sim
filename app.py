@@ -533,7 +533,27 @@ with col_out2:
         uploaded_logs = st.file_uploader("比較する2つの走行ログ(CSV)をアップロードしてください", type="csv", accept_multiple_files=True)
 
 st.write("---")
-st.write("**STEP 3: 解析実行**")
+st.write("**STEP 3: 解析設定と実行**")
+
+# ★追加1：AIの解析アプローチの選択
+analysis_focus = st.radio(
+    "🧠 AIの解析アプローチを選択してください",
+    [
+        "【バランス型】ロガー波形とシミュレーターの反力テーブルを総合して解析",
+        "【実走・フィーリング重視】反力数値は参考程度にし、実際の波形変化とライダーの悩みを最優先"
+    ],
+    help="シミュレーターの理論値にAIが引っ張られすぎる場合は「実走・フィーリング重視」を選択してください。"
+)
+
+# ★追加2：通信モードの3択
+api_mode = st.radio(
+    "📡 APIの送信・データ処理モードを選択",
+    [
+        "1. 【無償】手動カット済みデータ送信（間引きなし・高精度） ※推奨", 
+        "2. 【無償】自動圧縮して送信（長時間のログ用、精度低下あり）",
+        "3. 【有償】フルデータをそのまま送信（Google AI Studioで課金設定済みの方限定）"
+    ]
+)
 
 # AI解析実行ボタン
 if st.button("AIに解析させる（数十秒かかります）", type="primary"):
@@ -544,28 +564,39 @@ if st.button("AIに解析させる（数十秒かかります）", type="primary
     else:
         with st.spinner("ワークスエンジニアがデータを解析中..."):
             try:
-                # APIの初期化
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
 
                 # 反力テーブルのテキスト化
                 stroke_range_text = df_export.to_csv(index=False)
 
-                # 走行ログの読み込みとテキスト化
+                # 走行ログの読み込みとテキスト化（モードによる分岐）
                 log_contents = ""
-                if isinstance(uploaded_logs, list):
-                    for uploaded_log in uploaded_logs:
-                        log_df = pd.read_csv(uploaded_log)
-                        log_contents += f"\n--- File: {uploaded_log.name} ---\n"
-                        log_contents += log_df.to_csv(index=False)
-                else:
-                    log_df = pd.read_csv(uploaded_logs)
-                    log_contents += f"\n--- File: {uploaded_logs.name} ---\n"
+                logs_to_process = uploaded_logs if isinstance(uploaded_logs, list) else [uploaded_logs]
+
+                for uploaded_log in logs_to_process:
+                    log_df = pd.read_csv(uploaded_log)
+                    
+                    # モード2：自動圧縮（間引き）が選ばれた場合のみ処理
+                    if "自動圧縮" in api_mode:
+                        row_count = len(log_df)
+                        if row_count > 5000:
+                            step = row_count // 5000 
+                            log_df = log_df.iloc[::step, :]
+                            st.toast(f"ℹ️ {uploaded_log.name}: {row_count}行から{len(log_df)}行に自動圧縮しました。")
+                    
+                    log_contents += f"\n--- File: {uploaded_log.name} ---\n"
                     log_contents += log_df.to_csv(index=False)
+
+                # 解析アプローチに基づくプロンプトの微調整
+                focus_instruction = ""
+                if "実走・フィーリング重視" in analysis_focus:
+                    focus_instruction = "\n【重要事項】今回はシミュレーターの反力数値（理論値）に固執せず、実際の走行ログの波形変化と、ライダーの具体的な悩み（フィーリング）の解決を最優先して結論を出してください。\n"
 
                 # すべてのデータを合体させて裏側で送信
                 full_prompt = f"""
                 {prompt_text}
+                {focus_instruction}
 
                 以下は計算された【反力テーブル】です：
                 {stroke_range_text}
@@ -584,5 +615,6 @@ if st.button("AIに解析させる（数十秒かかります）", type="primary
 
             except Exception as e:
                 st.error(f"❌ 解析中にエラーが発生しました: {e}")
+                st.caption("※「Quota exceeded」エラーが出る場合は、データが大きすぎます。CSVをさらに短くカットするか、「自動圧縮」モードをお試しください。")
 
 st.caption("※解析にはGoogle Gemini APIを使用しています。入力されたデータは今回限りの解析のみに使用されます。")
