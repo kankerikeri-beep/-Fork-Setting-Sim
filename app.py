@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import math
 import json
 import pandas as pd
-import google.generativeai as genai  # ★追加：Gemini連携用ライブラリ
+import google.generativeai as genai
 
 # --- 1. ページ設定（※絶対に一番最初に書く） ---
 st.set_page_config(page_title="タミケンシム - フロントサスシミュレーター/AI分析ツール", layout="wide")
@@ -44,16 +44,12 @@ for key, val in default_ai_params.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-
 # ===============================
-# ★サイドバー：セッティング管理の集約
+# サイドバー：セッティング管理
 # ===============================
 with st.sidebar:
     st.title("💾 セッティング管理")
     
-    # -------------------------------------
-    # 1. フロントセッティング管理 (ばねレート共通可)
-    # -------------------------------------
     st.header("1. フロントセッティング")
     st.caption("シミュレーター用の基本設定（ばねレートツールと共通読込可）")
     
@@ -61,29 +57,20 @@ with st.sidebar:
     json_str = json.dumps(current_settings, indent=4)
     export_file_name = f"{st.session_state['setting_name']}.json"
     
-    st.download_button(
-        label="フロント設定を保存 (.json)",
-        data=json_str,
-        file_name=export_file_name,
-        mime="application/json"
-    )
+    st.download_button(label="フロント設定を保存 (.json)", data=json_str, file_name=export_file_name, mime="application/json")
     
     uploaded_file = st.file_uploader("フロント設定を読込", type="json")
     if uploaded_file is not None:
         try:
             loaded_data = json.load(uploaded_file)
             for k, v in loaded_data.items():
-                if k in st.session_state:
-                    st.session_state[k] = v
+                if k in st.session_state: st.session_state[k] = v
             st.success("フロント設定を読み込みました！")
         except Exception:
             st.error("読込失敗。ファイル形式を確認してください。")
 
     st.divider()
 
-    # -------------------------------------
-    # 2. AI解析用・セッティング (専用)
-    # -------------------------------------
     st.header("2. AI解析用・セッティング")
     st.caption("AI連携用の車高や減衰目安（専用読込ファイル）")
     
@@ -92,82 +79,38 @@ with st.sidebar:
     ai_json_str = json.dumps(ai_settings, indent=4)
     export_ai_name = f"AI_Prompt_{st.session_state['setting_name']}.json"
     
-    st.download_button(
-        label="AI設定を保存 (.json)",
-        data=ai_json_str,
-        file_name=export_ai_name,
-        mime="application/json",
-        key="ai_save_btn"
-    )
+    st.download_button(label="AI設定を保存 (.json)", data=ai_json_str, file_name=export_ai_name, mime="application/json", key="ai_save_btn")
     
     uploaded_ai_file = st.file_uploader("AI設定を読込（専用）", type="json", key="ai_load_btn")
     if uploaded_ai_file is not None:
         try:
             loaded_ai_data = json.load(uploaded_ai_file)
             for k, v in loaded_ai_data.items():
-                if k in ai_save_keys and k in st.session_state:
-                    st.session_state[k] = v
+                if k in ai_save_keys and k in st.session_state: st.session_state[k] = v
             st.success("AI設定を読み込みました！")
         except Exception:
             st.error("読込失敗。ファイル形式を確認してください。")
 
-
 # ===============================
-# メイン画面：タイトル（CSSで画像を再現）
+# メイン画面：タイトル
 # ===============================
 title_design = """
 <style>
-    /* タイトル（タミケンシム）のデザイン */
     .tamiken-title {
         font-family: "Hiragino Mincho ProN", "MS Mincho", serif;
-        font-size: 80px !important;
-        font-weight: 900 !important;
-        color: #E60000 !important; /* ベースは力強い赤 */
-        text-shadow:
-            /* 1層目：極太の黄色フチ（Gold系で見やすく） */
-            -3px -3px 0 #FFD700,  3px -3px 0 #FFD700,
-            -3px  3px 0 #FFD700,  3px  3px 0 #FFD700,
-            -3px  0px 0 #FFD700,  3px  0px 0 #FFD700,
-             0px -3px 0 #FFD700,  0px  3px 0 #FFD700,
-            /* 2層目：背景が白でも目立つように、薄い黒の影を落とす */
-             4px  4px 6px rgba(0, 0, 0, 0.5);
-        letter-spacing: -2px;
-        margin-bottom: 0px;
-        padding-bottom: 0px;
-        line-height: 1.2;
+        font-size: 80px !important; font-weight: 900 !important; color: #E60000 !important;
+        text-shadow: -3px -3px 0 #FFD700, 3px -3px 0 #FFD700, -3px 3px 0 #FFD700, 3px 3px 0 #FFD700, -3px 0px 0 #FFD700, 3px 0px 0 #FFD700, 0px -3px 0 #FFD700, 0px 3px 0 #FFD700, 4px 4px 6px rgba(0, 0, 0, 0.5);
+        letter-spacing: -2px; margin-bottom: 0px; padding-bottom: 0px; line-height: 1.2;
     }
-
-    /* サブタイトルのデザイン */
-    .tamiken-subtitle {
-        font-family: sans-serif;
-        font-size: 30px !important;
-        font-weight: bold !important;
-        /* ★修正：背景に合わせて白/黒が自動で切り替わります！ */
-        color: var(--text-color) !important;
-        margin-top: 5px;
-        margin-bottom: 25px;
-    }
+    .tamiken-subtitle { font-family: sans-serif; font-size: 30px !important; font-weight: bold !important; color: var(--text-color) !important; margin-top: 5px; margin-bottom: 25px; }
 </style>
 """
-
-# HTML/CSSをアプリに反映
 st.markdown(title_design, unsafe_allow_html=True)
-
-# 実際のタイトル・サブタイトルを表示
 st.markdown('<p class="tamiken-title">タミケンシム</p>', unsafe_allow_html=True)
 st.markdown('<p class="tamiken-subtitle">フロントサスシミュレーター / AI分析ツール（『こぼれ小話 タミケンバーン』連動）</p>', unsafe_allow_html=True)
 
-
-# --- 案内文 ---
-st.info("""
-YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール、素人構築にて精度向上検証中です。
-異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントサスシミュレーター関連の動画コメント欄へお願いいたします。
-""")
-st.markdown("""
-▶ [ばねレート簡易判定ツール v2.5 はこちら](https://spring-rate-tool.streamlit.app/)  
-▶ [YouTube：こぼれ小話タミケンバーン チャンネルTOP](https://www.youtube.com/@dogtamy-Lean-burn)
-""")
-
+st.info("YouTubeチャンネル『こぼれ小話 タミケンバーン』連動ツール、素人構築にて精度向上検証中です。\n異常値報告等ご指摘に数値共有などは、下記チャンネルのフロントサスシミュレーター関連の動画コメント欄へお願いいたします。")
+st.markdown("▶ [ばねレート簡易判定ツール v2.5 はこちら](https://spring-rate-tool.streamlit.app/)  \n▶ [YouTube：こぼれ小話タミケンバーン チャンネルTOP](https://www.youtube.com/@dogtamy-Lean-burn)")
 
 setting_name_input = st.text_input("📝 セッティング名（保存ファイル名に反映されます）", value=st.session_state["setting_name"])
 st.session_state["setting_name"] = setting_name_input
@@ -178,21 +121,17 @@ st.divider()
 # ===============================
 st.header("① 車両・ライディング条件")
 col_v1, col_v2, col_v3 = st.columns(3)
-
 with col_v1:
     m_bike = st.number_input("車体重量 [kg]", 0.0, 300.0, value=float(st.session_state["m_bike"]), step=1.0)
     st.session_state["m_bike"] = m_bike
     m_rider = st.number_input("装備体重 [kg]", 0.0, 200.0, value=float(st.session_state["m_rider"]), step=1.0)
     st.session_state["m_rider"] = m_rider
     total_m = m_bike + m_rider
-
 with col_v2:
     caster_angle = st.number_input("キャスター角 (静止時) [deg]", 0.0, 45.0, value=float(st.session_state["caster_angle"]), step=0.1)
     st.session_state["caster_angle"] = caster_angle
-    st.caption("※フル制動時のキャスター変化を含めて荷重移動を計算します。")
     decel_g = st.number_input("最大減速G (1.0〜1.9G推奨)", 0.5, 2.0, value=float(st.session_state["decel_g"]), step=0.01)
     st.session_state["decel_g"] = decel_g
-
 with col_v3:
     rad = math.radians(caster_angle)
     f_target_total_kg = (total_m * math.cos(rad) + total_m * decel_g * math.sin(rad)) * 1.18
@@ -204,7 +143,6 @@ with col_v3:
 # ===============================
 st.header("② フォーク・バネ内部仕様")
 col_f1, col_f2, col_f3 = st.columns(3)
-
 with col_f1:
     fork_id = st.number_input("フォーク内径 [mm]", 10.0, 60.0, value=float(st.session_state["fork_id"]), step=0.1)
     st.session_state["fork_id"] = fork_id
@@ -212,7 +150,6 @@ with col_f1:
     st.session_state["x_max"] = x_max
     oil_lock_len = st.number_input("オイルロック長（フルストロークからの残り） [mm]", 0.0, 50.0, value=float(st.session_state["oil_lock_len"]), step=1.0)
     st.session_state["oil_lock_len"] = oil_lock_len
-
 with col_f2:
     k_init = st.number_input("初期レート (1本分) [kg/mm]", 0.0, 20.0, value=float(st.session_state["k_init"]), step=0.01)
     st.session_state["k_init"] = k_init
@@ -220,35 +157,22 @@ with col_f2:
     st.session_state["k_late"] = k_late
     s_change = st.number_input("レート変化点 [mm]", 0.0, 250.0, value=float(st.session_state["s_change"]), step=1.0)
     st.session_state["s_change"] = s_change
-
 with col_f3:
     preload = st.number_input("プリロード [mm]", 0.0, 50.0, value=float(st.session_state["preload"]), step=1.0)
     st.session_state["preload"] = preload
     n_index = st.slider("空気断熱指数 n", 1.0, 3.0, value=float(st.session_state["n_index"]), step=0.01)
     st.session_state["n_index"] = n_index
 
-st.markdown("""
-**【空気断熱指数 $n$ の目安】**
-* **0% (理論値) 1.60**：非常に緩やか。奥での踏ん張りが足りない。
-* **25% 占拠 1.80 〜 1.95**：正立フォークなどでバネが細い場合。
-* **50% 占拠 2.10 〜 2.50**：倒立フォークや、太いカラー・インナーが入っている状態。
-* **60% 占拠 2.50 〜 2.70**：ほぼオイルロックに近い、極めて急激な立ち上がり。
-
-※本数値は、オイルによる動的減衰抵抗を空気の反力として擬似的に合算したセッティング指標です。
-""")
-
 # ===============================
 # 3. 油面比較 ＆ ストローク荷重調査
 # ===============================
 st.header("③ 油面比較 ＆ ストローク位置の荷重調査")
 col_o1, col_o2 = st.columns(2)
-
 with col_o1:
     oil_base = st.slider("基準油面 [mm]", 10, 200, value=int(st.session_state["oil_base"]))
     st.session_state["oil_base"] = oil_base
     oil_comp = st.slider("比較油面 [mm]", 10, 200, value=int(st.session_state["oil_comp"]))
     st.session_state["oil_comp"] = oil_comp
-
 with col_o2:
     target_stroke = st.number_input("調査したいストローク位置 [mm]（補足機能）", 0.0, float(x_max), value=float(st.session_state["target_stroke"]), step=1.0)
     st.session_state["target_stroke"] = target_stroke
@@ -257,16 +181,12 @@ with col_o2:
 # 計算ロジック & グラフ描画
 # ===============================
 area_air = math.pi * (fork_id / 2)**2
-
 def get_spring_f(x):
     x_total = x + preload
     total_change = s_change + preload
-    if k_late == 0 or s_change <= 0:
-        return k_init * x_total
-    if x_total <= total_change:
-        return k_init * x_total
-    else:
-        return k_init * total_change + k_late * (x_total - total_change)
+    if k_late == 0 or s_change <= 0: return k_init * x_total
+    if x_total <= total_change: return k_init * x_total
+    else: return k_init * total_change + k_late * (x_total - total_change)
 
 def get_air_f(x, air_space_at_full):
     p0 = 1.033 
@@ -281,19 +201,16 @@ def total_f_2pcs(x, oil): return (get_spring_f(x) + get_air_f(x, oil)) * 2
 def find_res_stroke(target_f, oil):
     search = np.linspace(0, x_max, 1000)
     for sx in search:
-        if total_f_2pcs(sx, oil) >= target_f:
-            return max(0.0, x_max - sx)
+        if total_f_2pcs(sx, oil) >= target_f: return max(0.0, x_max - sx)
     return 0.0
 
 st.header("④ シミュレーション結果比較")
 c1, c2 = st.columns(2)
 res_base = find_res_stroke(f_target_total_kg, oil_base)
 res_comp = find_res_stroke(f_target_total_kg, oil_comp)
-
 with c1:
     st.metric(f"基準油面 ({oil_base}mm) 最大荷重時残スト", f"{res_base:.1f} mm")
     st.write(f"（補足）ストローク {target_stroke}mm 時の荷重: **{total_f_2pcs(target_stroke, oil_base):.1f} kg**")
-
 with c2:
     st.metric(f"比較油面 ({oil_comp}mm) 最大荷重時残スト", f"{res_comp:.1f} mm", delta=f"{res_comp - res_base:.1f} mm")
     st.write(f"（補足）ストローク {target_stroke}mm 時の荷重: **{total_f_2pcs(target_stroke, oil_comp):.1f} kg**")
@@ -305,15 +222,11 @@ show_total = st.checkbox("合成反力を表示", value=True)
 
 x_plot = np.linspace(0, x_max, 500)
 fig = go.Figure()
-
 if show_spring:
-    y_s = [get_spring_f(x) * 2 for x in x_plot]
-    fig.add_trace(go.Scatter(x=x_plot, y=y_s, name="金属バネ(両側)", line=dict(dash='dash', color='silver')))
-
+    fig.add_trace(go.Scatter(x=x_plot, y=[get_spring_f(x) * 2 for x in x_plot], name="金属バネ(両側)", line=dict(dash='dash', color='silver')))
 if show_air:
     fig.add_trace(go.Scatter(x=x_plot, y=[get_air_f(x, oil_base) * 2 for x in x_plot], name=f"エア単体({oil_base}mm)", line=dict(color='lightblue', width=2)))
     fig.add_trace(go.Scatter(x=x_plot, y=[get_air_f(x, oil_comp) * 2 for x in x_plot], name=f"エア単体({oil_comp}mm)", line=dict(color='pink', width=2)))
-
 if show_total:
     fig.add_trace(go.Scatter(x=x_plot, y=[total_f_2pcs(x, oil_base) for x in x_plot], name="基準合成", line=dict(color="blue", width=4)))
     fig.add_trace(go.Scatter(x=x_plot, y=[total_f_2pcs(x, oil_comp) for x in x_plot], name="比較合成", line=dict(color="red", width=4)))
@@ -323,20 +236,14 @@ fig.add_hline(y=f_target_total_kg, line_dash="dot", line_color="green", annotati
 fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", template="simple_white", height=600)
 st.plotly_chart(fig, use_container_width=True)
 
+
 # ===============================
-# ★新機能：AI連携用データ作成 ＆ プロンプト生成
+# ★ AI連携用データ入力UI
 # ===============================
 st.divider()
-st.header("⑤ AI解析用プロンプト自動生成（AI連携用）")
-st.info("このセクションで入力した情報とシミュレーターの数値を合体させ、AIへ完璧な指示を自動で送信します。")
+st.header("⑤ AIデータ解析設定")
 
-# 解析モードの選択
-analysis_mode = st.radio(
-    "📊 解析モードを選択してください",
-    ["単一データ解析（1つの走行ログを深く分析）", "2つのデータ比較解析（A/Bテスト・仕様違いの比較）"],
-    horizontal=True,
-    key="analysis_mode_radio"
-)
+analysis_mode = st.radio("📊 解析モードを選択してください", ["単一データ解析（1つの走行ログを深く分析）", "2つのデータ比較解析（A/Bテスト・仕様違いの比較）"], horizontal=True)
 
 col_ai1, col_ai2 = st.columns(2)
 
@@ -369,7 +276,9 @@ with col_ai1:
             tire_p_rear = st.number_input("リア空気圧", value=1.90, step=0.05)
             track_cond = st.selectbox("路面状況", ["ドライ", "ハーフウェット", "ウェット"])
         
+        # ★追加：バネ向き等のフロントUI
         st.markdown("##### 🏍️ フロント設定")
+        front_spring_dir = st.selectbox("フロント バネの向き (密・荒のセット方向)", ["指定なし/等ピッチ", "密巻きが下 (地面側)", "密巻きが上 (車体側)"])
         c_f1, c_f2 = st.columns(2)
         with c_f1:
             front_protrusion = st.number_input("突き出し量 [±mm]", value=float(st.session_state.get("front_protrusion", 0.0)), step=1.0)
@@ -385,7 +294,10 @@ with col_ai1:
         with c_f4:
             reb_level = st.slider("フロント伸び側（リバウンド）", 1, 10, int(st.session_state.get("reb_level", 5)))
 
+        # ★追加：ツインサス注意書きとバネ向きのリアUI
         st.markdown("##### 🏍️ リア設定")
+        st.caption("※リアツインサスの場合は、左右のバネレートを合算した数値を入力してください。")
+        rear_spring_dir = st.selectbox("リア バネの向き (密・荒のセット方向)", ["指定なし/等ピッチ", "密巻きが下 (地面側)", "密巻きが上 (車体側)"])
         c_r1, c_r2 = st.columns(2)
         with c_r1:
             rear_k_init = st.number_input("リア初期レート [kg/mm]", value=float(st.session_state.get("rear_k_init", 14.07)), step=0.1)
@@ -415,95 +327,14 @@ with col_ai1:
 
 with col_ai2:
     st.subheader("B. 解析したい課題と状況の入力")
-    
-    run_condition = st.selectbox(
-        "走行状況（タイムや走り方への影響）",
-        ["単独走行（マイペースでのアタック・クリアラップ）", "追い走行（前走者をターゲットにしたアタック）", "混走・トラフィックあり（ペースの乱れあり）"]
-    )
-    phase_selection = st.selectbox(
-        "課題が発生しているフェーズ（場所）",
-        ["進入・フルブレーキング", "旋回中・コーナリング", "切り返し・S字", "立ち上がり・アクセルオン", "ストレート・全開加速"]
-    )
-    st.caption("⚠️ **注意:** ロガーの画面とCSVデータで「Lap数」がズレている場合があります。特定の周回を指定する場合はご注意ください。")
-    user_comment = st.text_area(
-        "具体的な悩み・知りたいこと（★良いと感じている部分もあれば記載）", 
-        value="例：Lap 9の1コーナー進入でフロントが戻ってこない感覚がある。逆にS字の切り返しは軽快で良い感じなので、そこは犠牲にしたくない。",
-        height=150
-    )
-
-# --- プロンプトの構築（裏側用） ---
-if "単一" in analysis_mode:
-    prompt_text = f"""あなたはワークスチームのチーフ・サスペンションエンジニア 兼 データエンジニアです。
-以下の【セッティング情報】と添付ファイル【反力テーブル(CSV)】【走行ログ(CSV)】【燃調マップ等画像(任意)】を掛け合わせ、論理的な解析とアドバイスを行ってください。
-
-【車両・環境・サスセッティング情報】
-・サーキット名: {track_name}
-・ライダー込重量: {total_m} kg / 想定最大減速G: {decel_g} G
-・キャスター角(静止時ベース): {caster_angle} deg
-
-[車体・電子制御・ブレーキ]
-・ブレーキパッド特性: {brake_pad}
-・ステアリングダンパー: {steering_damper}
-・トラクションコントロール: 基本 {tc_base} (個別指定: {tc_memo})
-・エンジンブレーキ(EBC): {eb_base}
-
-[タイヤ・空気圧設定]
-・銘柄/状態: {tire_info}
-・空気圧 (測定温度 {tire_temp}℃): F {tire_p_front} / R {tire_p_rear} [{tire_p_unit}]
-・路面環境: 路面温度 {track_temp}℃ / コンディション: {track_cond}
-
-[フロント仕様・設定]
-・バネレート: {k_init} kg/mm (後半: {k_late} kg/mm) / プリロード: {preload} mm / 油面: {oil_base} mm
-・突き出し量: {front_protrusion} mm
-・ロガー計測値: フリー(全伸び) {front_stroke_free} mm / ボトム(最小) {front_stroke_bottom} mm
-・減衰目安(1-10): 圧側 {comp_level} / 伸び側 {reb_level}
-
-[リア仕様・設定]
-・バネレート: 初期 {rear_k_init} kg/mm, 後半 {rear_k_late} kg/mm (変化点: {rear_rate_change} mm)
-・プリロード: {rear_preload} mm / 車高調整(サス単体セット長): {rear_ride_height} mm
-・ロガー計測値: フリー(全伸び) {rear_stroke_free} mm / ボトム(最小) {rear_stroke_bottom} mm
-・減衰目安(1-10): 圧側 {rear_comp_level} / 伸び側 {rear_reb_level}
-
-【ターゲット課題】
-・走行状況: {run_condition}
-・発生フェーズ: {phase_selection}
-・具体的な悩み: {user_comment}
-
-【解析・回答のステップ】
-AIは以下の1〜5の順序で必ず思考し、結果を出力してください。
-1. [データ抽出とコース把握]: 走行ログにGPSデータがある場合は該当コーナーを特定し（固有名詞を使用）、異常ラップは除外すること。
-2. [旋回を引き出す前後動作]: ブレーキングから倒し込みにかけてや切り返しにて、沈み込みの挙動が「鋭い旋回性を引き出すためのピッチングモーション（動的な姿勢変化）」や「バンク時に適切な車高から生まれる操舵状態」を作り出せているか「ブレーキ終盤からのフロント操舵」及び「ブレーキ操作と荷重コントロールによるリア操舵」の瞬間的な挙動の状態を各種波形から評価すること。
-3. [トラクションと車体の乱れ]: アクセルON時のリアの沈み込みとフロントの伸びを分析し、「効率の良い加速状態を作り出せているか」、トラクション抜けや、サスの反発による車体の乱れ（跳ねやチャタリング）が発生していないか確認と評価すること。（※空気圧の影響やTC・ステダンの介入状況も推測すること）
-4. [燃調の影響]: AfrやRpmからトルク変動の悪影響がないか確認し、【走行状況】も加味した上で必要に応じた燃調修正案を提示すること。
-5. [総合解決策の提示]: 具体的な悩み・知りたいこと「{user_comment}」を解決し最高の旋回性を引き出すための「意識するべき操舵技術」と「サスセッティング案（空気圧・電子制御含む）」、必要であればフロントやリアのストローク位置で予測される荷重数値から分析提案できる数値等を提示すること。"""
-
-else:
-    prompt_text = f"""あなたはワークスチームのチーフ・サスペンションエンジニア 兼 データエンジニアです。
-添付された【2つの走行ログ(CSV)】と【反力テーブル(CSV)】【燃調マップ等画像(任意)】を比較解析し、論理的なアドバイスを行ってください。
-
-【比較するデータ条件（差分メモ）】
-・サーキット名: {track_name}
-・キャスター角(静止時ベース): {caster_angle} deg
-・Data A (基準): {data_a_memo}
-・Data B (比較): {data_b_memo}
-・タイヤ・電子制御等共通情報: {tire_info}
-
-【ターゲット課題】
-・走行状況: {run_condition}
-・発生フェーズ: {phase_selection}
-・具体的な悩み: {user_comment}
-
-【解析・回答のステップ】
-AIは以下の1〜5の順序で必ず思考し、結果を出力してください。
-1. [データ比較とコース把握]: 添付された2つの走行ログにGPSデータがある場合は該当コーナーを特定し（固有名詞を使用）、Data AとBのそれぞれの波形を抽出・比較すること。異常ラップは除外すること。
-2. [A/B 旋回を引き出す前後動作の差]: ブレーキングから倒し込みにかけてや切り返しにて、どちらのデータがより沈み込みの挙動から「鋭い旋回性を引き出すためのピッチングモーション（動的な姿勢変化）」や「バンク時に適切な車高から生まれる操舵状態」を作り出せているか、「ブレーキ終盤からのフロント操舵」及び「ブレーキ操作と荷重コントロールによるリア操舵」の瞬間的な挙動の状態を各種波形から比較評価すること。
-3. [A/B トラクションと車体の乱れの差]: アクセルON時のリアの沈み込みとフロントの伸びを分析し、どちらが「効率の良い加速状態を作り出せているか」、トラクション抜けや、サスの反発による車体の乱れ（跳ねやチャタリング）の有無について比較確認と評価すること。（※空気圧の影響やTC・ステダンの介入状況も推測すること）
-4. [燃調の影響]: AfrやRpmからトルク変動の悪影響がないか確認し、【走行状況】も加味した上で必要に応じた燃調修正案を提示すること。
-5. [総合結論とセッティング案]: 具体的な悩み・知りたいこと「{user_comment}」に対する結論として、最高の旋回性を引き出すための「意識するべき操舵技術」と次に試すべき「トータルセッティング案（AとBの良い所取り、サス・空気圧・電子制御含む）」、必要であればフロントやリアのストローク位置で予測される荷重数値から分析提案できる数値等を提示すること。"""
+    run_condition = st.selectbox("走行状況（タイムや走り方への影響）", ["単独走行（マイペースでのアタック・クリアラップ）", "追い走行（前走者をターゲットにしたアタック）", "混走・トラフィックあり（ペースの乱れあり）"])
+    phase_selection = st.selectbox("課題が発生しているフェーズ（場所）", ["進入・フルブレーキング", "旋回中・コーナリング", "切り返し・S字", "立ち上がり・アクセルオン", "ストレート・全開加速"])
+    st.caption("⚠️ **注意:** ロガーの画面とCSVデータで「Lap数」がズレている場合があります。")
+    user_comment = st.text_area("具体的な悩み・知りたいこと（★良いと感じている部分もあれば記載）", value="例：Lap 9の1コーナー進入でフロントが戻ってこない感覚がある。逆にS字の切り返しは軽快で良い感じなので、そこは犠牲にしたくない。", height=150)
 
 
 # ===============================
-# ★新機能：AIへのデータ送信と解析実行
+# ★ AI連携用ファイルアップロードと実行
 # ===============================
 st.write("---")
 st.subheader("C. AIデータ解析実行")
@@ -512,18 +343,14 @@ col_out1, col_out2 = st.columns([1, 1.5])
 
 with col_out1:
     st.write("**STEP 1: 反力テーブルの確認（任意）**")
-    st.caption("シミュレーターで計算した反力データです。裏側でAIに自動送信されますが、手元に残したい場合はダウンロードしてください。")
-    
     stroke_range = np.arange(0, x_max + 1, 1.0)
     df_export = pd.DataFrame({
         "Stroke_mm": stroke_range,
         "Total_Force_Base_2pcs_N": [total_f_2pcs(x, oil_base) * 9.80665 for x in stroke_range],
         "Total_Force_Comp_2pcs_N": [total_f_2pcs(x, oil_comp) * 9.80665 for x in stroke_range]
     })
-    
     csv_data = df_export.to_csv(index=False).encode('utf-8')
-    export_csv_name = f"ForceTable_{st.session_state.get('setting_name', 'data')}.csv"
-    st.download_button("反力テーブルをダウンロード", data=csv_data, file_name=export_csv_name, mime="text/csv")
+    st.download_button("反力テーブルをダウンロード", data=csv_data, file_name=f"ForceTable_{st.session_state.get('setting_name', 'data')}.csv", mime="text/csv")
 
 with col_out2:
     st.write("**STEP 2: 走行ログ(CSV)のアップロード**")
@@ -532,55 +359,36 @@ with col_out2:
     else:
         uploaded_logs = st.file_uploader("比較する2つの走行ログ(CSV)をアップロードしてください", type="csv", accept_multiple_files=True)
 
-    # ==========================================
-    # ★新規追加：CSVの列を自動検出し、解析項目を自由に選べるUI
-    # ==========================================
+    # カラム自動検出UI
     selected_cols = []
     custom_sensor_memo = ""
-    
     if uploaded_logs:
-        # プレビュー用に最初のファイルからヘッダー（列名）だけを取得
         preview_file = uploaded_logs[0] if isinstance(uploaded_logs, list) else uploaded_logs
         try:
-            preview_df = pd.read_csv(preview_file, nrows=0) # データ本体は読まず列名だけ瞬時に取得
+            preview_df = pd.read_csv(preview_file, nrows=0)
             all_cols = preview_df.columns.tolist()
-            preview_file.seek(0) # 次の読み込みのためにファイルポインタをリセット（超重要）
+            preview_file.seek(0)
             
-            # ドロガー等でよく使われる列名があれば、デフォルトで選択状態にしておく
             typical_cols = ['Lap', 'RunTime', 'LapTime', 'ThrottoleP', 'Speed', 'Front', 'Rear', 'Rpm', 'Afr', 'T1', 'T2', 'T3']
             default_cols = [c for c in typical_cols if c in all_cols]
             
             st.markdown("##### ⚙️ ロガーデータ抽出設定（HRC・カスタムセンサー対応）")
-            st.caption("アップロードされたCSVから項目を自動検出しました。AIに渡す列を追加・削除できます。")
-            
-            selected_cols = st.multiselect(
-                "📊 AIに解析させるデータ列を選んでください", 
-                options=all_cols, 
-                default=default_cols,
-                help="GPSの緯度経度など、不要なデータを外すとAIがサスの動きに集中しやすくなります。"
-            )
-            
-            custom_sensor_memo = st.text_input(
-                "📝 カスタムセンサー（T1等）や、特殊な列名の意味をAIに教える（任意）", 
-                placeholder="例：T1はオイル温度、T2はシリンダー温度。Front_S はフロントストロークの事です。"
-            )
-        except Exception as e:
-            st.error("CSVファイルの列名読み込みに失敗しました。ファイル形式を確認してください。")
+            selected_cols = st.multiselect("📊 AIに解析させるデータ列を選択", options=all_cols, default=default_cols)
+            custom_sensor_memo = st.text_input("📝 カスタムセンサー等の意味をAIに教える（任意）", placeholder="例：T1はオイル温度、T2はシリンダー温度")
+        except Exception:
+            st.error("CSVファイルの列名読み込みに失敗しました。")
 
 st.write("---")
 st.write("**STEP 3: 解析設定と実行**")
 
-# AIの解析アプローチの選択（フィーリング重視をデフォルトに）
 analysis_focus = st.radio(
     "🧠 AIの解析アプローチを選択してください",
     [
         "【実走・フィーリング重視】実際のサスの動きの流れ（フロー）と、ライダーの悩みの解決を最優先する ※推奨",
         "【バランス型】ロガー波形の数値とシミュレーターの反力テーブルの理論値を総合して解析する"
-    ],
-    help="AIがシミュレーターの数値に引っ張られすぎる場合は「フィーリング重視」を選択してください。"
+    ]
 )
 
-# AI解析実行ボタン
 if st.button("AIに事前処理（ADA）をかけて解析させる", type="primary"):
     if not uploaded_logs:
         st.warning("⚠️ 走行ログ(CSV)をアップロードしてください。")
@@ -594,63 +402,106 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
 
-                # 反力テーブルのテキスト化
                 stroke_range_text = df_export.to_csv(index=False)
 
-                # --- ★ここから：Pythonによる高度な事前処理（疑似ADA・汎用版） ---
+                # --- 事前処理（疑似ADA） ---
                 log_contents = ""
                 logs_to_process = uploaded_logs if isinstance(uploaded_logs, list) else [uploaded_logs]
 
                 for uploaded_log in logs_to_process:
-                    uploaded_log.seek(0) # 念のためファイルポインタをリセット
+                    uploaded_log.seek(0)
                     log_df = pd.read_csv(uploaded_log)
                     ada_summary = []
                     ada_summary.append(f"--- File: {uploaded_log.name} の事前処理レポート ---")
                     
-                    # ユーザーが画面で選択した列だけを抽出
                     exist_cols = [c for c in selected_cols if c in log_df.columns]
-                    
                     if exist_cols:
-                        # 1. ピーク値の絶対確保（選択された全数値データに対して自動実行！）
                         ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
                         num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
                         for col in num_cols:
-                            max_val = log_df[col].max()
-                            min_val = log_df[col].min()
-                            if pd.notna(max_val) and pd.notna(min_val): # 空データ(NaN)は除外
+                            max_val, min_val = log_df[col].max(), log_df[col].min()
+                            if pd.notna(max_val) and pd.notna(min_val):
                                 ada_summary.append(f"{col} 最大値: {max_val:.2f}, 最小値: {min_val:.2f}")
 
-                        # 2. 流れ（Flow）を捉えるためのトレンド波形生成
                         df_trend = log_df[exist_cols].copy()
-                        
-                        # 生データのギザギザ（ノイズ）を移動平均(5行分)で滑らかにする
                         df_trend[num_cols] = df_trend[num_cols].rolling(window=5, min_periods=1).mean()
                         
-                        # AIが「流れ」を読めるように全体を最大300行程度に圧縮
                         step = max(1, len(df_trend) // 300)
                         df_trend_sampled = df_trend.iloc[::step, :]
                         
                         ada_summary.append("\n【2. トレンド波形データ（ノイズ除去・フロー抽出版）】")
-                        ada_summary.append("※以下のデータはサスペンションの「動きの流れ（Flow）」をAIが読み取るため、ノイズを除去し時系列順に圧縮したものです。")
                         ada_summary.append(df_trend_sampled.to_csv(index=False))
                     
                     log_contents += "\n".join(ada_summary) + "\n"
-                # --- 事前処理ここまで ---
 
-                # 解析アプローチとカスタムセンサーの補足設定
-                focus_instruction = ""
-                if "フィーリング重視" in analysis_focus:
-                    focus_instruction = "\n【最重要指示】今回はシミュレーターの反力テーブルの数値（理論値）に固執しないでください。添付した「トレンド波形データ」から読み取れる【実際のサスの動きの流れ（ピッチングのフロー）】と、ユーザーの具体的な悩み（フィーリング）を最優先にすり合わせ、論理的な解決策を提示してください。\n"
-                
-                sensor_instruction = ""
-                if custom_sensor_memo:
-                    sensor_instruction = f"\n【カスタムセンサー・列名の補足情報（重要）】\nユーザーからの補足: {custom_sensor_memo}\n"
+                # --- セッティング情報の文字列構築（単一/比較で分岐） ---
+                if "単一" in analysis_mode:
+                    settings_info = f"""
+[車体・電子制御・ブレーキ]
+・ブレーキパッド特性: {brake_pad} / ステアリングダンパー: {steering_damper}
+・トラクションコントロール: 基本 {tc_base} (個別指定: {tc_memo}) / エンジンブレーキ(EBC): {eb_base}
+[タイヤ・空気圧設定]
+・銘柄/状態: {tire_info}
+・空気圧 (測定温度 {tire_temp}℃): F {tire_p_front} / R {tire_p_rear} [{tire_p_unit}]
+・路面環境: 路面温度 {track_temp}℃ / コンディション: {track_cond}
+[フロント仕様・設定]
+・バネレート: {k_init} kg/mm (後半: {k_late} kg/mm) / プリロード: {preload} mm / 油面: {oil_base} mm
+・突き出し量: {front_protrusion} mm / バネセット方向: {front_spring_dir}
+・ロガー計測値: フリー(全伸び) {front_stroke_free} mm / ボトム(最小) {front_stroke_bottom} mm
+・減衰目安(1-10): 圧側 {comp_level} / 伸び側 {reb_level}
+[リア仕様・設定]
+・バネレート: 初期 {rear_k_init} kg/mm, 後半 {rear_k_late} kg/mm (変化点: {rear_rate_change} mm) ※ツインは合算
+・プリロード: {rear_preload} mm / 車高調整(サス単体セット長): {rear_ride_height} mm / バネセット方向: {rear_spring_dir}
+・ロガー計測値: フリー(全伸び) {rear_stroke_free} mm / ボトム(最小) {rear_stroke_bottom} mm
+・減衰目安(1-10): 圧側 {rear_comp_level} / 伸び側 {rear_reb_level}
+"""
+                else:
+                    settings_info = f"""
+【比較するデータ条件（差分メモ）】
+・Data A (基準): {data_a_memo}
+・Data B (比較): {data_b_memo}
+・タイヤ・電子制御等共通情報: {tire_info}
+"""
 
-                # すべてのデータを合体させて裏側で送信
+                focus_instruction = "\n【最重要指示】シミュレーターの反力テーブルの数値（理論値）に固執せず、添付した「トレンド波形データ」から読み取れる【実際のサスの動きの流れ（ピッチングのフロー）】と、ユーザーの具体的な悩み（フィーリング）を最優先にすり合わせ、論理的な解決策を提示してください。\n" if "フィーリング重視" in analysis_focus else ""
+                sensor_instruction = f"\n【カスタムセンサー・列名の補足情報（重要）】\nユーザーからの補足: {custom_sensor_memo}\n" if custom_sensor_memo else ""
+
+                # --- 究極の解析プロンプト ---
                 full_prompt = f"""
-                {prompt_text}
+                あなたはワークスチームのチーフ・サスペンションエンジニア 兼 データエンジニアです。
+                添付ファイル【反力テーブル(CSV)】【走行ログ要約データ】を掛け合わせ、論理的な解析とアドバイスを行ってください。
+
+                【車両・環境・サスセッティング情報】
+                ・サーキット名: {track_name}
+                ・ライダー込重量: {total_m} kg / 想定最大減速G: {decel_g} G
+                ・キャスター角(静止時ベース): {caster_angle} deg
+                {settings_info}
+                
+                【ターゲット課題】
+                ・走行状況: {run_condition}
+                ・発生フェーズ: {phase_selection}
+                ・具体的な悩み: {user_comment}
+
                 {focus_instruction}
                 {sensor_instruction}
+
+                【解析・回答のステップ】
+                AIは以下の1〜5の順序で必ず思考し、結果を出力してください。
+                1. [データ抽出とコース把握]: 走行ログにGPSデータがある場合は該当コーナーを特定し（固有名詞を使用）、ショートカットや異常ラップは除外すること。
+                2. [旋回を引き出す前後動作]: ブレーキングから倒し込みにかけてや切り返しにて、サスペンションの挙動が「鋭い旋回性を引き出すための動的な姿勢変化」を作り出せているかを各種波形から評価すること。分析と表現項目は下記4項目の分類にて実施：
+                  ・「ブレーキングでのフロントの高い初期ストロークスビートと適切なリアのリフト状態を作り出せているか、また遠心力を利用したブレーキ操作増(特にリアブレーキ)の操作を実現できているか」また、減速の最大Gを表記してブレーキング技術の基準として扱う。
+                  ・「ブレーキ終盤からのフロント側操舵(前後ブレーキ、バンク角、舵角補助)の状態を作り出せているか」
+                  ・「減速と加速の間の旋回瞬間のフルバンク状態で適切な車高から実舵角をより引き出せる操舵状態を作り出せているか、またリアブレーキを常に操作しリアへの遠心力荷重の付加状態を作り出せているか」
+                  ・「瞬間旋回後半にて前後ブレーキ操作(特にリアブレーキ)と荷重コントロールでのリアタイヤの変形でリアが外側軌道へと向かわせるリア操舵状態を作り出せているか」
+                3. [トラクションと車体の乱れ]: アクセルON時のリアの沈み込みとフロントの伸びを分析し、「効率の良い加速状態を作り出せているか」、トラクション抜けや、前後サスの反発による車体の乱れ（跳ねやチャタリング）が発生していないか確認と評価すること。（※空気圧の影響やTC・ステダンの介入状況も推測すること）
+                4. [燃調の影響と総合解決策]: AfrやRpmからトルク変動の悪影響がないか確認し、【走行状況】も加味した上で必要に応じた燃調修正案を提示すること。また、O2センサの分解能で確認できない可能性有れば加速ポンプ調整できないECUは疑似加速ポンプ的なパーシャル領域と全開領域の中間部分を濃くするような方策も提案すること。
+                5. 具体的な悩み・知りたいこと「{user_comment}」を解決し最高の旋回性を引き出すための「意識するべき操舵技術」の「サスセッティング案（空気圧・電子制御含む）」を提示。
+
+                【補足データ】
+                ・実舵角はバンク角との相関関係が密接であるとして表現すること。
+                ・理想的な残ストローク量はベストラップで5%以内、その他でも10%以内。
+                ・バネの密巻きと荒巻の上下セット方向での変化について、密巻き向きが地面よりの入力側(下側)の場合は同じプリロードでも若干動き出しがやわらかい。
+                ・サスセッティングでの仕様変更の主目的としては適切なバネレートを見つけること(答えは車高やプリロード等の方向性によっては当然複数ある)。
 
                 以下は計算された【反力テーブル】です：
                 {stroke_range_text}
@@ -659,10 +510,8 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 {log_contents}
                 """
 
-                # AIへリクエスト
                 response = model.generate_content(full_prompt)
 
-                # 結果表示
                 st.success("✅ 解析が完了しました！")
                 st.markdown("### 🏁 AIエンジニアの診断結果")
                 st.write(response.text)
