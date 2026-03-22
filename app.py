@@ -5,6 +5,11 @@ import math
 import json
 import pandas as pd
 import google.generativeai as genai
+import pandas as pd
+import google.generativeai as genai
+from PIL import Image  # ★この1行を追加
+
+# --- 1. ページ設定（※絶対に一番最初に書く） ---
 
 # --- 1. ページ設定（※絶対に一番最初に書く） ---
 st.set_page_config(page_title="タミケンシム - フロントサスシミュレーター/AI分析ツール", layout="wide")
@@ -366,11 +371,14 @@ with col_out1:
     st.download_button("反力テーブルをダウンロード", data=csv_data, file_name=f"ForceTable_{st.session_state.get('setting_name', 'data')}.csv", mime="text/csv")
 
 with col_out2:
-    st.write("**STEP 2: 走行ログ(CSV)のアップロード**")
+    st.write("**STEP 2: 走行ログ(CSV)と設定画像(任意)のアップロード**")
     if "単一" in analysis_mode:
         uploaded_logs = st.file_uploader("走行ログ(CSV)をアップロードしてください", type="csv", accept_multiple_files=False)
     else:
         uploaded_logs = st.file_uploader("比較する2つの走行ログ(CSV)をアップロードしてください", type="csv", accept_multiple_files=True)
+
+    # ★復活：燃調マップ等の画像アップロード
+    uploaded_images = st.file_uploader("燃調マップ・設定画面のスクショ等があればアップロード（任意）", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
     # カラム自動検出UI
     selected_cols = []
@@ -481,9 +489,9 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
 
 # --- 究極の解析プロンプト（裏設定と出力フォーマットの分離） ---
 # --- 究極の解析プロンプト（裏設定と出力フォーマットの分離） ---
-                full_prompt = f"""
+full_prompt = f"""
                 あなたはワークスチームのチーフ・サスペンションエンジニア 兼 データエンジニアです。
-                添付ファイル【反力テーブル(CSV)】【走行ログ要約データ】を掛け合わせ、論理的な解析とアドバイスを行ってください。
+                添付ファイル【反力テーブル(CSV)】【走行ログ要約データ】【設定画像(任意)】を掛け合わせ、論理的な解析とアドバイスを行ってください。
 
                 【車両・環境・サスセッティング情報】
                 ・サーキット名: {track_name}
@@ -520,6 +528,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 ・残ストローク: 理想的な残ストローク量はベストラップで5%以内、その他でも10%以内とする。
                 ・バネのセット方向: 密巻きと荒巻の上下セット方向での変化について、密巻き向きが地面よりの入力側(下側)の場合は同じプリロードでも若干動き出しがやわらかい特性を考慮すること。
                 ・サスセッティングの主目的: 適切なバネレートを見つけることである。(答えは車高やプリロード等の方向性によっては当然複数ある)。
+                ・ライディングポジション: ハンドル、シート、ステップ位置の設定によるライディングポジションやフォームによる動的姿勢変化も車体セッティングの項目の一部として必要な場合は表現すること。
                 =========================================
 
                 【出力フォーマット】
@@ -547,7 +556,17 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 {log_contents}
                 """
 
-                response = model.generate_content(full_prompt)
+                # ★画像がある場合はテキストと一緒にAIに送信する準備
+                api_request_data = [full_prompt]
+                if uploaded_images:
+                    for img_file in uploaded_images:
+                        img = Image.open(img_file)
+                        api_request_data.append(img)
+
+                # AIへリクエスト（テキストと画像を両方投げる）
+                response = model.generate_content(api_request_data)
+
+                st.success("✅ 解析が完了しました！")
 
                 st.success("✅ 解析が完了しました！")
                 st.markdown("### 🏁 AIエンジニアの診断結果")
