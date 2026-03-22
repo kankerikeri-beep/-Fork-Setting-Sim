@@ -251,7 +251,15 @@ if show_total:
 
 fig.add_vrect(x0=x_max - oil_lock_len, x1=x_max, fillcolor="gray", opacity=0.1, layer="below", annotation_text="オイルロック域")
 fig.add_hline(y=f_target_total_kg, line_dash="dot", line_color="green", annotation_text="想定最大荷重")
-fig.update_layout(xaxis_title="ストローク量 [mm]", yaxis_title="荷重 (2本合計) [kg]", template="simple_white", height=600)
+
+# ★修正箇所：font=dict(...) を追加して、どんな環境でも日本語が文字化けしないように強制指定しました
+fig.update_layout(
+    xaxis_title="ストローク量 [mm]", 
+    yaxis_title="荷重 (2本合計) [kg]", 
+    template="simple_white", 
+    height=600,
+    font=dict(family="'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Meiryo', 'Noto Sans JP', sans-serif") 
+)
 st.plotly_chart(fig, use_container_width=True)
 
 
