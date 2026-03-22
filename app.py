@@ -143,6 +143,7 @@ with col_v3:
 # ===============================
 st.header("② フォーク・バネ内部仕様")
 col_f1, col_f2, col_f3 = st.columns(3)
+
 with col_f1:
     fork_id = st.number_input("フォーク内径 [mm]", 10.0, 60.0, value=float(st.session_state["fork_id"]), step=0.1)
     st.session_state["fork_id"] = fork_id
@@ -150,6 +151,7 @@ with col_f1:
     st.session_state["x_max"] = x_max
     oil_lock_len = st.number_input("オイルロック長（フルストロークからの残り） [mm]", 0.0, 50.0, value=float(st.session_state["oil_lock_len"]), step=1.0)
     st.session_state["oil_lock_len"] = oil_lock_len
+
 with col_f2:
     k_init = st.number_input("初期レート (1本分) [kg/mm]", 0.0, 20.0, value=float(st.session_state["k_init"]), step=0.01)
     st.session_state["k_init"] = k_init
@@ -157,13 +159,13 @@ with col_f2:
     st.session_state["k_late"] = k_late
     s_change = st.number_input("レート変化点 [mm]", 0.0, 250.0, value=float(st.session_state["s_change"]), step=1.0)
     st.session_state["s_change"] = s_change
+
 with col_f3:
     preload = st.number_input("プリロード [mm]", 0.0, 50.0, value=float(st.session_state["preload"]), step=1.0)
     st.session_state["preload"] = preload
-n_index = st.slider("空気断熱指数 n", 1.0, 3.0, value=float(st.session_state["n_index"]), step=0.01)
+    n_index = st.slider("空気断熱指数 n", 1.0, 3.0, value=float(st.session_state["n_index"]), step=0.01)
     st.session_state["n_index"] = n_index
 
-# ↓↓↓ ここから下のブロックを復旧（追加） ↓↓↓
 st.markdown("""
 **【空気断熱指数 $n$ の目安】**
 * **0% (理論値) 1.60**：非常に緩やか。奥での踏ん張りが足りない。
@@ -173,7 +175,6 @@ st.markdown("""
 
 ※本数値は、オイルによる動的減衰抵抗を空気の反力として擬似的に合算したセッティング指標です。
 """)
-# ↑↑↑ ここまで復旧 ↑↑↑
 
 # ===============================
 # 3. 油面比較 ＆ ストローク荷重調査
