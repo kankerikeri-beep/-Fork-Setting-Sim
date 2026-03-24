@@ -5,11 +5,8 @@ import math
 import json
 import pandas as pd
 import google.generativeai as genai
-import pandas as pd
-import google.generativeai as genai
-from PIL import Image  # ★この1行を追加
-
-# --- 1. ページ設定（※絶対に一番最初に書く） ---
+from PIL import Image
+from scipy.signal import savgol_filter  # ★追加：高精度のG算出（SGフィルタ）用
 
 # --- 1. ページ設定（※絶対に一番最初に書く） ---
 st.set_page_config(page_title="タミケンシム - フロントサスシミュレーター/AI分析ツール", layout="wide")
@@ -355,10 +352,18 @@ with col_ai1:
 with col_ai2:
     st.subheader("B. 解析したい課題と状況の入力")
     run_condition = st.selectbox("走行状況（タイムや走り方への影響）", ["単独走行（マイペースでのアタック・クリアラップ）", "追い走行（前走者をターゲットにしたアタック）", "混走・トラフィックあり（ペースの乱れあり）"])
+    
+    # ★追加：対象ラップの絞り込み
+    target_lap_mode = st.selectbox("解析対象ラップの絞り込み", [
+        "指定なし（全体から課題フェーズを検索）", 
+        "ベストラップ付近を中心に解析", 
+        "平均値に一番近いラップ付近を中心に解析", 
+        "ベストラップと平均値に近いラップを比較して解析"
+    ])
+    
     phase_selection = st.selectbox("課題が発生しているフェーズ（場所）", ["進入・フルブレーキング", "旋回中・コーナリング", "切り返し・S字", "立ち上がり・アクセルオン", "ストレート・全開加速"])
     st.caption("⚠️ **注意:** ロガーの画面とCSVデータで「Lap数」がズレている場合があります。")
     user_comment = st.text_area("具体的な悩み・知りたいこと（★良いと感じている部分もあれば記載）", value="例：Lap 9の1コーナー進入でフロントが戻ってこない感覚がある。逆にS字の切り返しは軽快で良い感じなので、そこは犠牲にしたくない。", height=150)
-
 
 # ===============================
 # ★ AI連携用ファイルアップロードと実行
@@ -426,7 +431,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
     elif "GEMINI_API_KEY" not in st.secrets:
         st.error("⚠️ APIキーが設定されていません。StreamlitのSecretsを確認してください。")
     else:
-        with st.spinner("データエンジニア(Python)がノイズ除去(スムージング)、GPS横G算出、各種指標の抽出を実行中..."):
+        with st.spinner("データエンジニア(Python)がSGフィルタによる高精度G算出と各種指標の抽出を実行中..."):
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -438,12 +443,11 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
 
                 def get_stable_stroke(df, col_name, time_col='RunTime'):
                     if col_name not in df.columns: return None
-                    idx_min = df[col_name].idxmin() # 最小値=最大沈み込みと仮定
+                    idx_min = df[col_name].idxmin() 
                     val_min = df.loc[idx_min, col_name]
                     time_min = df.loc[idx_min, time_col]
                     lap_min = df.loc[idx_min, 'Lap'] if 'Lap' in df.columns else '不明'
                     
-                    # 前後0.5秒のウィンドウを取得し、突発的なギャップ（下位10%の深い沈み）を除外して平均化
                     window = df[(df[time_col] >= time_min - 0.5) & (df[time_col] <= time_min + 0.5)]
                     q10 = window[col_name].quantile(0.10)
                     stable_mean = window[window[col_name] > q10][col_name].mean()
@@ -459,49 +463,70 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                     
                     exist_cols = [c for c in selected_cols if c in log_df.columns]
                     if exist_cols:
-                        ada_summary.append("\n【0. パフォーマンス・姿勢指標（異常値除外・スムージング済）】")
+                        ada_summary.append("\n【0. パフォーマンス・姿勢指標（サビツキー・ゴーレイフィルタ処理済）】")
                         
-                        # 1. タイム差分計算
+                        # 1. タイム差分とサンプリングレートからのウィンドウサイズ計算
                         if 'RunTime' in log_df.columns:
                             log_df['dt'] = log_df['RunTime'].diff().fillna(0.1)
                             log_df['dt'] = log_df['dt'].apply(lambda x: x if x > 0 else 0.1)
                             
-                            # 2. 車速センサからの加減速G (スムージング適用)
+                            # ★ 0.25秒間のフィルタに必要なフレーム数（ウィンドウサイズ）を自動計算
+                            dt_mean = log_df['dt'].mean()
+                            window_len = int(0.25 / dt_mean) if dt_mean > 0 else 5
+                            if window_len % 2 == 0: window_len += 1 # SGフィルタは奇数必須
+                            if window_len < 3: window_len = 3
+                            
+                            # 2. 車速センサからの加減速G (SGフィルタ適用)
                             if 'Speed' in log_df.columns:
-                                log_df['dv_speed'] = log_df['Speed'].diff().fillna(0) / 3.6 
-                                # スムージング: 5フレームの移動平均でノイズを除去
-                                log_df['Acc_G_Speed'] = ((log_df['dv_speed'] / log_df['dt']) / 9.80665).rolling(window=5, min_periods=1).mean()
-                                # 異常値（±2.0G以上）を除外した安全なデータ列を作成
-                                valid_g_speed = log_df['Acc_G_Speed'][(log_df['Acc_G_Speed'] >= -2.0) & (log_df['Acc_G_Speed'] <= 2.0)]
+                                speed_ms = log_df['Speed'] / 3.6
+                                try:
+                                    # 速度データ自体を滑らかにしてから微分してGを出す（ピークを潰さない）
+                                    smoothed_speed = savgol_filter(speed_ms, window_length=window_len, polyorder=2)
+                                    log_df['dv_speed'] = pd.Series(smoothed_speed).diff().fillna(0)
+                                    log_df['Acc_G_Speed'] = (log_df['dv_speed'] / log_df['dt']) / 9.80665
+                                except Exception:
+                                    # 失敗時はパンダスの移動平均で代用
+                                    log_df['dv_speed'] = speed_ms.diff().fillna(0)
+                                    log_df['Acc_G_Speed'] = ((log_df['dv_speed'] / log_df['dt']) / 9.80665).rolling(window=window_len, center=True).mean()
                                 
+                                valid_g_speed = log_df['Acc_G_Speed'][(log_df['Acc_G_Speed'] >= -2.0) & (log_df['Acc_G_Speed'] <= 2.0)]
                                 if not valid_g_speed.empty:
                                     min_g_idx = valid_g_speed.idxmin()
                                     max_g_idx = valid_g_speed.idxmax()
-                                    ada_summary.append(f"・[車速センサ推計] 最大減速G: {valid_g_speed.min():.2f} G (Lap {log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_g_idx, 'RunTime']:.1f}s)")
-                                    ada_summary.append(f"・[車速センサ推計] 最大加速G: {valid_g_speed.max():.2f} G (Lap {log_df.loc[max_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_g_idx, 'RunTime']:.1f}s)")
+                                    ada_summary.append(f"・[車速センサ推計] 最大減速G: {valid_g_speed.min():.3f} G (Lap {log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_g_idx, 'RunTime']:.1f}s)")
+                                    ada_summary.append(f"・[車速センサ推計] 最大加速G: {valid_g_speed.max():.3f} G (Lap {log_df.loc[max_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_g_idx, 'RunTime']:.1f}s)")
 
-                            # 3. GPS速度からの加減速G (スムージング適用)
+                            # 3. GPS速度からの加減速G (SGフィルタ適用)
                             gps_cols = [c for c in log_df.columns if c.lower() in ['gps_speed', 'gpsspeed']]
                             if gps_cols:
-                                log_df['dv_gps'] = log_df[gps_cols[0]].diff().fillna(0) / 3.6
-                                # スムージング: 5フレームの移動平均
-                                log_df['Acc_G_GPS'] = ((log_df['dv_gps'] / log_df['dt']) / 9.80665).rolling(window=5, min_periods=1).mean()
+                                gps_ms = log_df[gps_cols[0]] / 3.6
+                                try:
+                                    smoothed_gps = savgol_filter(gps_ms, window_length=window_len, polyorder=2)
+                                    log_df['dv_gps'] = pd.Series(smoothed_gps).diff().fillna(0)
+                                    log_df['Acc_G_GPS'] = (log_df['dv_gps'] / log_df['dt']) / 9.80665
+                                except Exception:
+                                    log_df['dv_gps'] = gps_ms.diff().fillna(0)
+                                    log_df['Acc_G_GPS'] = ((log_df['dv_gps'] / log_df['dt']) / 9.80665).rolling(window=window_len, center=True).mean()
+                                    
                                 valid_g_gps = log_df['Acc_G_GPS'][(log_df['Acc_G_GPS'] >= -2.0) & (log_df['Acc_G_GPS'] <= 2.0)]
                                 if not valid_g_gps.empty:
                                     min_gps_idx = valid_g_gps.idxmin()
                                     max_gps_idx = valid_g_gps.idxmax()
-                                    ada_summary.append(f"・[GPS推計] 最大減速G: {valid_g_gps.min():.2f} G (Lap {log_df.loc[min_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_gps_idx, 'RunTime']:.1f}s)")
-                                    ada_summary.append(f"・[GPS推計] 最大加速G: {valid_g_gps.max():.2f} G (Lap {log_df.loc[max_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_gps_idx, 'RunTime']:.1f}s)")
+                                    ada_summary.append(f"・[GPS推計] 最大減速G: {valid_g_gps.min():.3f} G (Lap {log_df.loc[min_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_gps_idx, 'RunTime']:.1f}s)")
+                                    ada_summary.append(f"・[GPS推計] 最大加速G: {valid_g_gps.max():.3f} G (Lap {log_df.loc[max_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_gps_idx, 'RunTime']:.1f}s)")
 
                             # 4. 横Gデータの取得 (センサー値 or GPSからのヨー角推計)
                             lat_g_cols = [c for c in log_df.columns if c.lower() in ['g_lat', 'latg', 'lat_g', '横g']]
                             if lat_g_cols:
                                 lat_g_col = lat_g_cols[0]
-                                log_df[lat_g_col] = log_df[lat_g_col].rolling(window=5, min_periods=1).mean() # センサー横Gもスムージング
+                                try:
+                                    log_df[lat_g_col] = savgol_filter(log_df[lat_g_col], window_length=window_len, polyorder=2)
+                                except Exception:
+                                    log_df[lat_g_col] = log_df[lat_g_col].rolling(window=window_len, center=True).mean()
+                                    
                                 max_lat_idx = log_df[lat_g_col].abs().idxmax()
-                                ada_summary.append(f"・[センサー実測] 最大横G: {abs(log_df.loc[max_lat_idx, lat_g_col]):.2f} G (Lap {log_df.loc[max_lat_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_lat_idx, 'RunTime']:.1f}s)")
+                                ada_summary.append(f"・[センサー実測] 最大横G: {abs(log_df.loc[max_lat_idx, lat_g_col]):.3f} G (Lap {log_df.loc[max_lat_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_lat_idx, 'RunTime']:.1f}s)")
                             else:
-                                # センサー横Gが無い場合、GPSの緯度経度から疑似的に横Gを算出
                                 lat_cols = [c for c in log_df.columns if c.lower() in ['latitude', 'lat']]
                                 lon_cols = [c for c in log_df.columns if c.lower() in ['longitude', 'lon']]
                                 if lat_cols and lon_cols:
@@ -513,16 +538,20 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     y = dlat
                                     heading = np.arctan2(x, y)
                                     d_heading = heading.diff()
-                                    d_heading = (d_heading + np.pi) % (2 * np.pi) - np.pi # -pi to pi wrap
+                                    d_heading = (d_heading + np.pi) % (2 * np.pi) - np.pi
                                     yaw_rate = d_heading / log_df['dt']
                                     
                                     v_ms = log_df[gps_cols[0]] / 3.6 if gps_cols else (log_df['Speed'] / 3.6 if 'Speed' in log_df.columns else 0)
-                                    log_df['Lat_G_GPS'] = ((v_ms * yaw_rate) / 9.80665).rolling(window=5, min_periods=1).mean()
-                                    
+                                    raw_lat_g = (v_ms * yaw_rate) / 9.80665
+                                    try:
+                                        log_df['Lat_G_GPS'] = savgol_filter(raw_lat_g.fillna(0), window_length=window_len, polyorder=2)
+                                    except Exception:
+                                        log_df['Lat_G_GPS'] = raw_lat_g.rolling(window=window_len, center=True).mean()
+                                        
                                     valid_lat_gps = log_df['Lat_G_GPS'][(log_df['Lat_G_GPS'] >= -2.0) & (log_df['Lat_G_GPS'] <= 2.0)]
                                     if not valid_lat_gps.empty:
                                         max_lat_gps_idx = valid_lat_gps.abs().idxmax()
-                                        ada_summary.append(f"・[GPS座標推計] 最大横G: {abs(log_df.loc[max_lat_gps_idx, 'Lat_G_GPS']):.2f} G (Lap {log_df.loc[max_lat_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_lat_gps_idx, 'RunTime']:.1f}s)")
+                                        ada_summary.append(f"・[GPS座標推計] 最大横G: {abs(log_df.loc[max_lat_gps_idx, 'Lat_G_GPS']):.3f} G (Lap {log_df.loc[max_lat_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_lat_gps_idx, 'RunTime']:.1f}s)")
 
                             # 5. 最大ストロークと安定平均値の算出
                             f_stroke = get_stable_stroke(log_df, 'Front')
@@ -548,7 +577,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                         if 'Acc_G_Speed' in log_df.columns:
                              df_trend_sampled['Est_G_Speed'] = log_df['Acc_G_Speed'].iloc[::step].values
 
-                        ada_summary.append("\n【2. トレンド波形データ（ノイズ除去・加減速G推計含）】")
+                        ada_summary.append("\n【2. トレンド波形データ（分析用サンプリング済）】")
                         ada_summary.append(df_trend_sampled.to_csv(index=False))
                     
                     log_contents += "\n".join(ada_summary) + "\n"
@@ -596,6 +625,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 
                 【ターゲット課題】
                 ・走行状況: {run_condition}
+                ・対象ラップの絞り込み: {target_lap_mode}
                 ・発生フェーズ: {phase_selection}
                 ・具体的な悩み: {user_comment}
 
@@ -636,6 +666,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 1. [データ抽出とコース把握]
                    ・【コーナー名称の推測・明示】「Lap Oの RunTime O秒地点」という表現だけでなく、入力された「サーキット名（{track_name}）」のレイアウトと時間経過を照らし合わせ、可能な限り「1コーナー進入」「ヘアピン」「裏ストレートエンド」など具体的なコース上の場所を推測して明記すること。
                    ・該当コーナーの特定と、ショートカット等の異常ラップ除外の結果。
+                   ・【対象ラップの絞り込み結果】ユーザーが選択した「{target_lap_mode}」の指示に従い、どのLapを分析の主軸に据えたかを明記すること。
                    ・【加減速G・横Gの特定と比較】事前処理されたログに「車速センサ由来」と「GPS由来」の両方のGデータが存在する場合、必ず「▼ 車速センサーデータからのG」「▼ GPSデータからのG」のようにサブタイトルを分けて両方の最大値を明記すること。ホイールロックやラグ等により両者の数値が大幅に違う場合は、「今回の分析では〜の理由により〇〇のデータを採用する」とAIの判断を明記すること。
                    ・【最大ストロークと安定平均位置】コース全周において前後が最大ストロークした場所を明記。また、事前処理で計算された「ギャップ除外の安定平均ストローク」の数値を必ず引き合いに出し、エアバネの特性評価に使用すること。
                 2. [旋回を引き出す前後動作]
