@@ -572,6 +572,38 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                 ada_summary.append(f"・【リア】瞬間最大ストローク: {r_stroke['val']:.1f}mm | ギャップ除外の安定平均: {r_stroke['stable_mean']:.1f}mm (Lap {r_stroke['lap']}, {r_stroke['time']:.1f}s付近)")
 
                         ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
+                      ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
+                        num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
+                        for col in num_cols:
+                            max_val, min_val = log_df[col].max(), log_df[col].min()
+                            if pd.notna(max_val) and pd.notna(min_val):
+                                ada_summary.append(f"{col} 最大値: {max_val:.2f}, 最小値: {min_val:.2f}")
+
+                        # ==========================================
+                        # ★ここに追加！各ラップの正確なピーク値をAIにカンペとして渡す
+                        if 'Lap' in log_df.columns:
+                            ada_summary.append("\n【1.5. 各ラップのピークG・最大ストローク（全データから抽出した正確な値）】")
+                            for current_lap in sorted(log_df['Lap'].dropna().unique()):
+                                lap_data = log_df[log_df['Lap'] == current_lap]
+                                if lap_data.empty: continue
+                                
+                                lap_str = f"・Lap {int(current_lap)}: "
+                                
+                                # 加減速Gの正確な最大・最小
+                                if 'Acc_G_Speed' in lap_data.columns:
+                                    valid_g = lap_data['Acc_G_Speed'][(lap_data['Acc_G_Speed'] >= -1.6) & (lap_data['Acc_G_Speed'] <= 1.6)]
+                                    if not valid_g.empty:
+                                        lap_str += f"最大減速 {valid_g.min():.3f}G / 最大加速 {valid_g.max():.3f}G | "
+                                        
+                                # フロントストロークの正確な最奥値
+                                if 'Front' in lap_data.columns:
+                                    lap_str += f"Fストローク最奥 {lap_data['Front'].min():.1f}mm | "
+                                    
+                                ada_summary.append(lap_str)
+                        # ==========================================
+
+                        df_trend = log_df[exist_cols].copy()
+                        df_trend[num_cols] = df_trend[num_cols].rolling(window=5, min_periods=1).mean()  
                         num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
                         for col in num_cols:
                             max_val, min_val = log_df[col].max(), log_df[col].min()
