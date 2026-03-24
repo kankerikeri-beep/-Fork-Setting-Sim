@@ -276,19 +276,6 @@ col_ai1, col_ai2 = st.columns(2)
 
 with col_ai1:
     st.subheader("A. セッティングの状態入力")
-    
-    if "単一" in analysis_mode:
-        track_name = st.text_input("サーキット名（任意）", value=st.session_state.get("track_name", ""), placeholder="例：近畿スポーツランド、鈴鹿サーキット")
-        
-        st.markdown("##### ⚙️ 車体・電子制御・ブレーキ設定")
-        c_etc1, c_etc2 = st.columns(2)
-        with c_etc1:
-            brake_pad = st.selectbox("ブレーキパッド初期特性", ["2: リニア (握力に比例)", "1: 初期大 (ガツンと効く)", "3: 奥大 (奥で強く効く)"])
-            steering_damper = st.selectbox("ステアリングダンパー減衰", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
-        with c_etc2:
-            tc_base = st.selectbox("トラクションコントロール(TC)基本設定", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
-            eb_base = st.selectbox("エンジンブレーキ(EBC)・アイドル設定", ["無し/固定", "1 (エンブレ弱)", "2", "3", "4", "5 (エンブレ強)"])
-        tc_memo = st.text_input("TC・電子制御 コーナー別指定 (自由記入)", placeholder="例: 最終コーナーのみTCを強めに設定(レベル4)")
 
         if "単一" in analysis_mode:
             track_name = st.text_input("サーキット名（任意）", value=st.session_state.get("track_name", ""), placeholder="例：近畿スポーツランド、鈴鹿サーキット")
