@@ -290,17 +290,32 @@ with col_ai1:
             eb_base = st.selectbox("エンジンブレーキ(EBC)・アイドル設定", ["無し/固定", "1 (エンブレ弱)", "2", "3", "4", "5 (エンブレ強)"])
         tc_memo = st.text_input("TC・電子制御 コーナー別指定 (自由記入)", placeholder="例: 最終コーナーのみTCを強めに設定(レベル4)")
 
- st.markdown("##### 🛞 タイヤ・空気圧・環境設定")
-        tire_info = st.text_input("タイヤ銘柄・状態（任意）", value=st.session_state.get("tire_info", ""), placeholder="例：リア TT93PRO ミディアムソフト 100LAP")
-        c_tp1, c_tp2, c_tp3 = st.columns(3)
-        with c_tp1:
-            tire_p_unit = st.selectbox("空気圧 単位", ["kgf/cm2 (kg)", "PSI", "Bar"])
-            tire_temp = st.number_input("測定時タイヤ温度 [℃]", value=15, step=1)
-        with c_tp2:
-            tire_p_front = st.number_input("フロント空気圧", value=1.50, step=0.05)
-            track_temp = st.number_input("路面温度 [℃] (任意)", value=15, step=1)
-        with c_tp3:
-            tire_p_rear = st.number_input("リア空気圧", value=1.90, step=0.05)
+        if "単一" in analysis_mode:
+            track_name = st.text_input("サーキット名（任意）", value=st.session_state.get("track_name", ""), placeholder="例：近畿スポーツランド、鈴鹿サーキット")
+            
+            st.markdown("##### ⚙️ 車体・電子制御・ブレーキ設定")
+            c_etc1, c_etc2 = st.columns(2)
+            with c_etc1:
+                brake_pad = st.selectbox("ブレーキパッド初期特性", ["2: リニア (握力に比例)", "1: 初期大 (ガツンと効く)", "3: 奥大 (奥で強く効く)"])
+                steering_damper = st.selectbox("ステアリングダンパー減衰", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
+            with c_etc2:
+                tc_base = st.selectbox("トラクションコントロール(TC)基本設定", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
+                eb_base = st.selectbox("エンジンブレーキ(EBC)・アイドル設定", ["無し/固定", "1 (エンブレ弱)", "2", "3", "4", "5 (エンブレ強)"])
+            tc_memo = st.text_input("TC・電子制御 コーナー別指定 (自由記入)", placeholder="例: 最終コーナーのみTCを強めに設定(レベル4)")
+
+            # ▼ここから下のインデント（左側の空白）がズレていたと思われます
+            st.markdown("##### 🛞 タイヤ・空気圧・環境設定")
+            tire_info = st.text_input("タイヤ銘柄・状態（任意）", value=st.session_state.get("tire_info", ""), placeholder="例：リア TT93PRO ミディアムソフト 100LAP")
+            c_tp1, c_tp2, c_tp3 = st.columns(3)
+            with c_tp1:
+                tire_p_unit = st.selectbox("空気圧 単位", ["kgf/cm2 (kg)", "PSI", "Bar"])
+                tire_temp = st.number_input("測定時タイヤ温度 [℃]", value=15, step=1)
+            with c_tp2:
+                tire_p_front = st.number_input("フロント空気圧", value=1.50, step=0.05)
+                track_temp = st.number_input("路面温度 [℃] (任意)", value=15, step=1)
+            with c_tp3:
+                tire_p_rear = st.number_input("リア空気圧", value=1.90, step=0.05)
+                track_cond = st.selectbox("路面状況", ["ドライ", "ハーフウェット", "ウェット"])
             track_cond = st.selectbox("路面状況", ["ドライ", "ハーフウェット", "ウェット"])
         
         # ★追加：バネ向き等のフロントUI
