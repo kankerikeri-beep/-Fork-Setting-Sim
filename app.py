@@ -417,7 +417,6 @@ analysis_focus = st.radio(
         "【バランス型】ロガー波形の数値とシミュレーターの反力テーブルの理論値を総合して解析する"
     ]
 )
-
 if st.button("AIに事前処理（ADA）をかけて解析させる", type="primary"):
     if not uploaded_logs:
         st.warning("⚠️ 走行ログ(CSV)をアップロードしてください。")
@@ -426,7 +425,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
     elif "GEMINI_API_KEY" not in st.secrets:
         st.error("⚠️ APIキーが設定されていません。StreamlitのSecretsを確認してください。")
     else:
-        with st.spinner("データエンジニア(Python)がノイズ除去と特徴抽出を実行中..."):
+        with st.spinner("データエンジニア(Python)がノイズ除去と加減速Gの算出を実行中..."):
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -445,6 +444,38 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                     
                     exist_cols = [c for c in selected_cols if c in log_df.columns]
                     if exist_cols:
+                        # ★追加：車速(Speed)からの加減速G計算と異常値検証用データの抽出
+                        if 'Speed' in log_df.columns and 'RunTime' in log_df.columns:
+                            # ゼロ割防止を入れつつ加速度を計算 (km/h -> m/s)
+                            log_df['dt'] = log_df['RunTime'].diff().fillna(0.1)
+                            log_df['dt'] = log_df['dt'].apply(lambda x: x if x > 0 else 0.1)
+                            log_df['dv'] = log_df['Speed'].diff().fillna(0) / 3.6 
+                            log_df['Acc_G'] = (log_df['dv'] / log_df['dt']) / 9.80665
+                            
+                            ada_summary.append("\n【0. パフォーマンス指標（車速からの加減速G推計）】")
+                            
+                            # 簡易的なラップタイム検証（LapTimeがあれば）
+                            if 'Lap' in log_df.columns and 'LapTime' in log_df.columns:
+                                lap_summary = log_df.groupby('Lap')['LapTime'].min().reset_index()
+                                best_lap = lap_summary['LapTime'].min()
+                                valid_laps = lap_summary[lap_summary['LapTime'] <= best_lap * 1.10]['Lap'].tolist()
+                                ada_summary.append(f"※参考：ベストラップの110%以内の有効アタックラップ目安は Lap {valid_laps} です。極端に遅いラップのG値は除外して評価してください。")
+
+                            # 全体の最大・最小G値を取得してAIに渡す（AI側でノイズか判定させる）
+                            min_g_idx = log_df['Acc_G'].idxmin()
+                            max_g_idx = log_df['Acc_G'].idxmax()
+                            
+                            lap_min = log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'
+                            time_min = log_df.loc[min_g_idx, 'RunTime']
+                            val_min = log_df.loc[min_g_idx, 'Acc_G']
+                            
+                            lap_max = log_df.loc[max_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'
+                            time_max = log_df.loc[max_g_idx, 'RunTime']
+                            val_max = log_df.loc[max_g_idx, 'Acc_G']
+                            
+                            ada_summary.append(f"・ログ全体の最大減速G (理論値): {val_min:.2f} G (Lap {lap_min}, RunTime: {time_min:.1f}s 付近)")
+                            ada_summary.append(f"・ログ全体の最大加速G (理論値): {val_max:.2f} G (Lap {lap_max}, RunTime: {time_max:.1f}s 付近)")
+
                         ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
                         num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
                         for col in num_cols:
@@ -458,12 +489,15 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                         step = max(1, len(df_trend) // 300)
                         df_trend_sampled = df_trend.iloc[::step, :]
                         
-                        ada_summary.append("\n【2. トレンド波形データ（ノイズ除去・フロー抽出版）】")
+                        # 解析用トレンドデータにAcc_Gも含める
+                        if 'Acc_G' in log_df.columns:
+                             df_trend_sampled['Est_G'] = log_df['Acc_G'].iloc[::step].values
+
+                        ada_summary.append("\n【2. トレンド波形データ（ノイズ除去・加減速G推計含）】")
                         ada_summary.append(df_trend_sampled.to_csv(index=False))
                     
                     log_contents += "\n".join(ada_summary) + "\n"
 
-                # --- セッティング情報の文字列構築（単一/比較で分岐） ---
                 if "単一" in analysis_mode:
                     settings_info = f"""
 [車体・電子制御・ブレーキ]
@@ -495,7 +529,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 focus_instruction = "\n【最重要指示】シミュレーターの反力テーブルの数値（理論値）に固執せず、添付した「トレンド波形データ」から読み取れる【実際のサスの動きの流れ（ピッチングのフロー）】と、ユーザーの具体的な悩み（フィーリング）を最優先にすり合わせ、論理的な解決策を提示してください。\n" if "フィーリング重視" in analysis_focus else ""
                 sensor_instruction = f"\n【カスタムセンサー・列名の補足情報（重要）】\nユーザーからの補足: {custom_sensor_memo}\n" if custom_sensor_memo else ""
 
-                # --- 究極の解析プロンプト ---
                 full_prompt = f"""
                 あなたはワークスチームのチーフ・サスペンションエンジニア 兼 データエンジニアです。
                 添付ファイル【反力テーブル(CSV)】【走行ログ要約データ】【設定画像(任意)】を掛け合わせ、論理的な解析とアドバイスを行ってください。
@@ -534,7 +567,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 ・実舵角: バンク角との相関関係が密接であるとして表現し、バンク角は重心位置(ライディングフォーム)を加味した実効バンク角として表現し指摘する場合もあること。
                 ・残ストローク: 理想的な残ストローク量はベストラップで5%以内、その他でも10%以内とする。
                 ・バネのセット方向: 密巻きと荒巻の上下セット方向での変化について、密巻き向きが地面よりの入力側(下側)の場合は同じプリロードでも若干動き出しがやわらかい特性を考慮すること。
-                ・サスセッティングの主目的: 適切なバネレートを見つけることである。(答えは車高やプリロード等の方向性によっては当然複数ある)。
+                ・サスセッティングの主目的: 適切な動的姿勢変化を見つけることである。(答えはバネレートや車高やプリロード等の方向性によっては当然複数ある)。
                 ・ライディングポジション: ハンドル、シート、ステップ位置の設定によるライディングポジションやフォームによる動的姿勢変化も車体セッティングの項目の一部として必要な場合は表現すること。
                 =========================================
 
@@ -543,14 +576,16 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
 
                 1. [データ抽出とコース把握]
                    ・該当コーナーの特定と、ショートカット等の異常ラップ除外の結果
-                   ・【最大ストローク地点の明示】コース全周において、フロントおよびリアが「最大ストローク（最小フルストローク）」を記録した場所をそれぞれ具体的に明示すること。（※今回ターゲットとした「課題のコーナー」で発生したのか、全く別のコーナーで発生したのかを明確に区別して記載すること）
+                   ・【加減速Gの特定】車速(またはGPS)データから計算した「減速G」および「加速G」について、それが【LAP数】と【コース上のどの部位（コーナー等）か】を明記すること。また、その数値が比較的遅いラップでのものか、あるいはサス底付き・センサーノイズ等による異常値ではないかの検証結果も必ず併記すること。
+                   ・【最大ストローク地点の明示】コース全周において、フロントおよびリアが「最大ストローク（最小フルストローク）」を記録した場所をそれぞれ具体的に明示すること。（今回ターゲットとした課題のコーナーか、別コーナーかを明確に区別）
                 2. [旋回を引き出す前後動作]
+                   ※【厳守事項】ロギングの数値データを引き合いに出す際、どこのコーナーの話か非常に分かりづらくなるのを防ぐため、必ず「▼ Lap O - 第Oコーナー進入」のようにサブタイトルとして明示するか、文中で「ヘアピンコーナーにおいては〜」等、都度場所を明示すること。引き合いに他のコーナーの挙動を出す場合も同様に場所を明示して比較すること。
                    ・ブレーキング分析: (評価結果を記載)
                    ・倒しこみ動作: (評価結果を記載)
                    ・初期旋回操舵: (評価結果を記載)
                    ・後期旋回操舵: (評価結果を記載)
                 3. [加速状態での旋回操舵]
-                   (トラクションと車体の乱れに関する評価結果を記載)
+                   (トラクションと車体の乱れに関する評価結果を記載。ここでも必要に応じてサブタイトル等で場所を明記)
                 4. [燃調の影響と総合解決策]
                    (燃調の確認結果と修正案を記載)
                 5. [課題解決のための操舵技術とサスセッティング案]
@@ -563,14 +598,12 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 {log_contents}
                 """
 
-                # ★画像がある場合はテキストと一緒にAIに送信する準備
                 api_request_data = [full_prompt]
                 if uploaded_images:
                     for img_file in uploaded_images:
                         img = Image.open(img_file)
                         api_request_data.append(img)
 
-                # AIへリクエスト（テキストと画像を両方投げる）
                 response = model.generate_content(api_request_data)
 
                 st.success("✅ 解析が完了しました！")
