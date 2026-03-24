@@ -479,17 +479,16 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                             log_df['dt'] = log_df['RunTime'].diff().fillna(0.1)
                             log_df['dt'] = log_df['dt'].apply(lambda x: x if x > 0 else 0.1)
                             
-                            # ★ フィルタのウィンドウサイズ計算（ノイズに強い中央値ベースで0.4秒間を確保）
+                            # ★ フィルタのウィンドウサイズ計算
                             dt_median = log_df['dt'].median()
                             window_len = int(0.4 / dt_median) if dt_median > 0 else 7
-                            if window_len % 2 == 0: window_len += 1 # SGフィルタは奇数必須
-                            if window_len < 5: window_len = 5 # 最低5フレームは確保
+                            if window_len % 2 == 0: window_len += 1
+                            if window_len < 5: window_len = 5
                             
-                            # 2. 車速センサからの加減速G (G算出後にSGフィルタ適用)
+                            # 2. 車速センサからの加減速G
                             if 'Speed' in log_df.columns:
                                 speed_ms = log_df['Speed'] / 3.6
                                 raw_g_speed = speed_ms.diff().fillna(0) / log_df['dt'] / 9.80665
-                                # 物理的限界（±3G）を超えるスパイクノイズを先にカット
                                 raw_g_speed = raw_g_speed.clip(lower=-3.0, upper=3.0)
                                 
                                 try:
@@ -497,7 +496,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                 except Exception:
                                     log_df['Acc_G_Speed'] = raw_g_speed.rolling(window=window_len, center=True).mean()
                                 
-                                # 評価用の安全な範囲（±1.6G程度）で最大値を拾う
                                 valid_g_speed = log_df['Acc_G_Speed'][(log_df['Acc_G_Speed'] >= -1.6) & (log_df['Acc_G_Speed'] <= 1.6)]
                                 if not valid_g_speed.empty:
                                     min_g_idx = valid_g_speed.idxmin()
@@ -505,7 +503,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     ada_summary.append(f"・[車速センサ推計] 最大減速G: {valid_g_speed.min():.3f} G (Lap {log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_g_idx, 'RunTime']:.1f}s)")
                                     ada_summary.append(f"・[車速センサ推計] 最大加速G: {valid_g_speed.max():.3f} G (Lap {log_df.loc[max_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_g_idx, 'RunTime']:.1f}s)")
 
-                            # 3. GPS速度からの加減速G (G算出後にSGフィルタ適用)
+                            # 3. GPS速度からの加減速G
                             gps_cols = [c for c in log_df.columns if c.lower() in ['gps_speed', 'gpsspeed']]
                             if gps_cols:
                                 gps_ms = log_df[gps_cols[0]] / 3.6
@@ -524,7 +522,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     ada_summary.append(f"・[GPS推計] 最大減速G: {valid_g_gps.min():.3f} G (Lap {log_df.loc[min_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_gps_idx, 'RunTime']:.1f}s)")
                                     ada_summary.append(f"・[GPS推計] 最大加速G: {valid_g_gps.max():.3f} G (Lap {log_df.loc[max_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_gps_idx, 'RunTime']:.1f}s)")
 
-                            # 4. 横Gデータの取得 (センサー値 or GPSからのヨー角推計)
+                            # 4. 横Gデータの取得
                             lat_g_cols = [c for c in log_df.columns if c.lower() in ['g_lat', 'latg', 'lat_g', '横g']]
                             if lat_g_cols:
                                 lat_g_col = lat_g_cols[0]
@@ -625,7 +623,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 focus_instruction = "\n【最重要指示】シミュレーターの反力テーブルの数値（理論値）に固執せず、添付した「トレンド波形データ」から読み取れる【実際のサスの動きの流れ（ピッチングのフロー）】と、ユーザーの具体的な悩み（フィーリング）を最優先にすり合わせ、論理的な解決策を提示してください。\n" if "フィーリング重視" in analysis_focus else ""
                 sensor_instruction = f"\n【カスタムセンサー・列名の補足情報（重要）】\nユーザーからの補足: {custom_sensor_memo}\n" if custom_sensor_memo else ""
 
-full_prompt = f"""
+                full_prompt = f"""
                 あなたはワークスチームのチーフ・サスペンションエンジニア 兼 データエンジニアです。
                 添付ファイル【反力テーブル(CSV)】【走行ログ要約データ】【設定画像(任意)】を掛け合わせ、論理的な解析とアドバイスを行ってください。
 
