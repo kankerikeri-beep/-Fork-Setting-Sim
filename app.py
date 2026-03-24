@@ -470,45 +470,45 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                             log_df['dt'] = log_df['RunTime'].diff().fillna(0.1)
                             log_df['dt'] = log_df['dt'].apply(lambda x: x if x > 0 else 0.1)
                             
-                            # ★ 0.25秒間のフィルタに必要なフレーム数（ウィンドウサイズ）を自動計算
-                            dt_mean = log_df['dt'].mean()
-                            window_len = int(0.25 / dt_mean) if dt_mean > 0 else 5
+                            # ★ フィルタのウィンドウサイズ計算（ノイズに強い中央値ベースで0.4秒間を確保）
+                            dt_median = log_df['dt'].median()
+                            window_len = int(0.4 / dt_median) if dt_median > 0 else 7
                             if window_len % 2 == 0: window_len += 1 # SGフィルタは奇数必須
-                            if window_len < 3: window_len = 3
+                            if window_len < 5: window_len = 5 # 最低5フレームは確保
                             
-                            # 2. 車速センサからの加減速G (SGフィルタ適用)
+                            # 2. 車速センサからの加減速G (G算出後にSGフィルタ適用)
                             if 'Speed' in log_df.columns:
                                 speed_ms = log_df['Speed'] / 3.6
-                                try:
-                                    # 速度データ自体を滑らかにしてから微分してGを出す（ピークを潰さない）
-                                    smoothed_speed = savgol_filter(speed_ms, window_length=window_len, polyorder=2)
-                                    log_df['dv_speed'] = pd.Series(smoothed_speed).diff().fillna(0)
-                                    log_df['Acc_G_Speed'] = (log_df['dv_speed'] / log_df['dt']) / 9.80665
-                                except Exception:
-                                    # 失敗時はパンダスの移動平均で代用
-                                    log_df['dv_speed'] = speed_ms.diff().fillna(0)
-                                    log_df['Acc_G_Speed'] = ((log_df['dv_speed'] / log_df['dt']) / 9.80665).rolling(window=window_len, center=True).mean()
+                                raw_g_speed = speed_ms.diff().fillna(0) / log_df['dt'] / 9.80665
+                                # 物理的限界（±3G）を超えるスパイクノイズを先にカット
+                                raw_g_speed = raw_g_speed.clip(lower=-3.0, upper=3.0)
                                 
-                                valid_g_speed = log_df['Acc_G_Speed'][(log_df['Acc_G_Speed'] >= -2.0) & (log_df['Acc_G_Speed'] <= 2.0)]
+                                try:
+                                    log_df['Acc_G_Speed'] = savgol_filter(raw_g_speed, window_length=window_len, polyorder=2)
+                                except Exception:
+                                    log_df['Acc_G_Speed'] = raw_g_speed.rolling(window=window_len, center=True).mean()
+                                
+                                # 評価用の安全な範囲（±1.6G程度）で最大値を拾う
+                                valid_g_speed = log_df['Acc_G_Speed'][(log_df['Acc_G_Speed'] >= -1.6) & (log_df['Acc_G_Speed'] <= 1.6)]
                                 if not valid_g_speed.empty:
                                     min_g_idx = valid_g_speed.idxmin()
                                     max_g_idx = valid_g_speed.idxmax()
                                     ada_summary.append(f"・[車速センサ推計] 最大減速G: {valid_g_speed.min():.3f} G (Lap {log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_g_idx, 'RunTime']:.1f}s)")
                                     ada_summary.append(f"・[車速センサ推計] 最大加速G: {valid_g_speed.max():.3f} G (Lap {log_df.loc[max_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_g_idx, 'RunTime']:.1f}s)")
 
-                            # 3. GPS速度からの加減速G (SGフィルタ適用)
+                            # 3. GPS速度からの加減速G (G算出後にSGフィルタ適用)
                             gps_cols = [c for c in log_df.columns if c.lower() in ['gps_speed', 'gpsspeed']]
                             if gps_cols:
                                 gps_ms = log_df[gps_cols[0]] / 3.6
+                                raw_g_gps = gps_ms.diff().fillna(0) / log_df['dt'] / 9.80665
+                                raw_g_gps = raw_g_gps.clip(lower=-3.0, upper=3.0)
+                                
                                 try:
-                                    smoothed_gps = savgol_filter(gps_ms, window_length=window_len, polyorder=2)
-                                    log_df['dv_gps'] = pd.Series(smoothed_gps).diff().fillna(0)
-                                    log_df['Acc_G_GPS'] = (log_df['dv_gps'] / log_df['dt']) / 9.80665
+                                    log_df['Acc_G_GPS'] = savgol_filter(raw_g_gps, window_length=window_len, polyorder=2)
                                 except Exception:
-                                    log_df['dv_gps'] = gps_ms.diff().fillna(0)
-                                    log_df['Acc_G_GPS'] = ((log_df['dv_gps'] / log_df['dt']) / 9.80665).rolling(window=window_len, center=True).mean()
+                                    log_df['Acc_G_GPS'] = raw_g_gps.rolling(window=window_len, center=True).mean()
                                     
-                                valid_g_gps = log_df['Acc_G_GPS'][(log_df['Acc_G_GPS'] >= -2.0) & (log_df['Acc_G_GPS'] <= 2.0)]
+                                valid_g_gps = log_df['Acc_G_GPS'][(log_df['Acc_G_GPS'] >= -1.6) & (log_df['Acc_G_GPS'] <= 1.6)]
                                 if not valid_g_gps.empty:
                                     min_gps_idx = valid_g_gps.idxmin()
                                     max_gps_idx = valid_g_gps.idxmax()
@@ -519,10 +519,11 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                             lat_g_cols = [c for c in log_df.columns if c.lower() in ['g_lat', 'latg', 'lat_g', '横g']]
                             if lat_g_cols:
                                 lat_g_col = lat_g_cols[0]
+                                raw_lat_g_sens = log_df[lat_g_col].clip(lower=-3.0, upper=3.0)
                                 try:
-                                    log_df[lat_g_col] = savgol_filter(log_df[lat_g_col], window_length=window_len, polyorder=2)
+                                    log_df[lat_g_col] = savgol_filter(raw_lat_g_sens, window_length=window_len, polyorder=2)
                                 except Exception:
-                                    log_df[lat_g_col] = log_df[lat_g_col].rolling(window=window_len, center=True).mean()
+                                    log_df[lat_g_col] = raw_lat_g_sens.rolling(window=window_len, center=True).mean()
                                     
                                 max_lat_idx = log_df[lat_g_col].abs().idxmax()
                                 ada_summary.append(f"・[センサー実測] 最大横G: {abs(log_df.loc[max_lat_idx, lat_g_col]):.3f} G (Lap {log_df.loc[max_lat_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_lat_idx, 'RunTime']:.1f}s)")
@@ -543,12 +544,14 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     
                                     v_ms = log_df[gps_cols[0]] / 3.6 if gps_cols else (log_df['Speed'] / 3.6 if 'Speed' in log_df.columns else 0)
                                     raw_lat_g = (v_ms * yaw_rate) / 9.80665
+                                    raw_lat_g = raw_lat_g.clip(lower=-3.0, upper=3.0)
+                                    
                                     try:
                                         log_df['Lat_G_GPS'] = savgol_filter(raw_lat_g.fillna(0), window_length=window_len, polyorder=2)
                                     except Exception:
                                         log_df['Lat_G_GPS'] = raw_lat_g.rolling(window=window_len, center=True).mean()
                                         
-                                    valid_lat_gps = log_df['Lat_G_GPS'][(log_df['Lat_G_GPS'] >= -2.0) & (log_df['Lat_G_GPS'] <= 2.0)]
+                                    valid_lat_gps = log_df['Lat_G_GPS'][(log_df['Lat_G_GPS'] >= -1.6) & (log_df['Lat_G_GPS'] <= 1.6)]
                                     if not valid_lat_gps.empty:
                                         max_lat_gps_idx = valid_lat_gps.abs().idxmax()
                                         ada_summary.append(f"・[GPS座標推計] 最大横G: {abs(log_df.loc[max_lat_gps_idx, 'Lat_G_GPS']):.3f} G (Lap {log_df.loc[max_lat_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_lat_gps_idx, 'RunTime']:.1f}s)")
