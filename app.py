@@ -479,23 +479,28 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                             log_df['dt'] = log_df['dt'].apply(lambda x: x if x > 0 else 0.1)
                             
                             # ==========================================
-                            # ★ 異常ラップ（アウトラップ・ショートカット）の自動判定フィルター
+                            # ★ 異常ラップ（アウトラップ・ショートカット）の自動判定フィルター（条件緩和版）
                             valid_laps_mask = pd.Series(True, index=log_df.index)
                             valid_laps = []
                             if 'Lap' in log_df.columns:
-                                lap_durations = log_df.groupby('Lap')['RunTime'].agg(lambda x: x.max() - x.min())
+                                # LapTime列があればそれを優先、無ければRunTimeの差分から計算
+                                if 'LapTime' in log_df.columns and not log_df['LapTime'].isna().all():
+                                    lap_durations = log_df.groupby('Lap')['LapTime'].first()
+                                else:
+                                    lap_durations = log_df.groupby('Lap')['RunTime'].agg(lambda x: x.max() - x.min())
+                                
                                 if not lap_durations.empty:
                                     median_lap = lap_durations.median()
-                                    # 極端なショートカット（中央値の80%未満）を基準から除外
-                                    valid_durations = lap_durations[lap_durations >= median_lap * 0.8]
+                                    # 極端なショートカット（中央値の70%未満）を基準から除外
+                                    valid_durations = lap_durations[lap_durations >= median_lap * 0.7]
                                     if not valid_durations.empty:
                                         base_lap_time = valid_durations.min() # 実質的なベストラップ
-                                        # ベストラップの -5% 〜 +15% の範囲のみを「有効ラップ」とする
-                                        valid_laps = lap_durations[(lap_durations >= base_lap_time * 0.95) & (lap_durations <= base_lap_time * 1.15)].index.tolist()
+                                        # 判定を緩和: ベストラップの -10% 〜 +20% の範囲を「有効ラップ」とする
+                                        valid_laps = lap_durations[(lap_durations >= base_lap_time * 0.90) & (lap_durations <= base_lap_time * 1.20)].index.tolist()
                                         excluded_laps = [l for l in lap_durations.index if l not in valid_laps]
                                         if excluded_laps:
                                             valid_laps_mask = log_df['Lap'].isin(valid_laps)
-                                            ada_summary.append(f"・[異常値自動フィルター] タイム基準で Lap {excluded_laps} をショートカットやアウトラップと判定し、ピーク評価対象から除外しました。")
+                                            ada_summary.append(f"・[異常値自動フィルター] タイム基準で Lap {excluded_laps} をショートカットやアウトラップ等と判定し、ピーク評価対象から除外しました。")
                             # ==========================================
                             
                             dt_median = log_df['dt'].median()
@@ -599,7 +604,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                         ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
                         num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
                         for col in num_cols:
-                            # ここも有効ラップだけにしてしまうと事実と異なるので、生データそのまま
                             max_val, min_val = log_df[col].max(), log_df[col].min()
                             if pd.notna(max_val) and pd.notna(min_val):
                                 ada_summary.append(f"{col} 最大値: {max_val:.2f}, 最小値: {min_val:.2f}")
