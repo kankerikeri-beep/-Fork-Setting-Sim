@@ -474,18 +474,15 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                     if exist_cols:
                         ada_summary.append("\n【0. パフォーマンス・姿勢指標（サビツキー・ゴーレイフィルタ処理済）】")
                         
-                        # 1. タイム差分とサンプリングレートからのウィンドウサイズ計算
                         if 'RunTime' in log_df.columns:
                             log_df['dt'] = log_df['RunTime'].diff().fillna(0.1)
                             log_df['dt'] = log_df['dt'].apply(lambda x: x if x > 0 else 0.1)
                             
-                            # ★ フィルタのウィンドウサイズ計算
                             dt_median = log_df['dt'].median()
                             window_len = int(0.4 / dt_median) if dt_median > 0 else 7
                             if window_len % 2 == 0: window_len += 1
                             if window_len < 5: window_len = 5
                             
-                            # 2. 車速センサからの加減速G
                             if 'Speed' in log_df.columns:
                                 speed_ms = log_df['Speed'] / 3.6
                                 raw_g_speed = speed_ms.diff().fillna(0) / log_df['dt'] / 9.80665
@@ -503,7 +500,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     ada_summary.append(f"・[車速センサ推計] 最大減速G: {valid_g_speed.min():.3f} G (Lap {log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_g_idx, 'RunTime']:.1f}s)")
                                     ada_summary.append(f"・[車速センサ推計] 最大加速G: {valid_g_speed.max():.3f} G (Lap {log_df.loc[max_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_g_idx, 'RunTime']:.1f}s)")
 
-                            # 3. GPS速度からの加減速G
                             gps_cols = [c for c in log_df.columns if c.lower() in ['gps_speed', 'gpsspeed']]
                             if gps_cols:
                                 gps_ms = log_df[gps_cols[0]] / 3.6
@@ -522,7 +518,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     ada_summary.append(f"・[GPS推計] 最大減速G: {valid_g_gps.min():.3f} G (Lap {log_df.loc[min_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_gps_idx, 'RunTime']:.1f}s)")
                                     ada_summary.append(f"・[GPS推計] 最大加速G: {valid_g_gps.max():.3f} G (Lap {log_df.loc[max_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_gps_idx, 'RunTime']:.1f}s)")
 
-                            # 4. 横Gデータの取得
                             lat_g_cols = [c for c in log_df.columns if c.lower() in ['g_lat', 'latg', 'lat_g', '横g']]
                             if lat_g_cols:
                                 lat_g_col = lat_g_cols[0]
@@ -563,7 +558,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                         max_lat_gps_idx = valid_lat_gps.abs().idxmax()
                                         ada_summary.append(f"・[GPS座標推計] 最大横G: {abs(log_df.loc[max_lat_gps_idx, 'Lat_G_GPS']):.3f} G (Lap {log_df.loc[max_lat_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[max_lat_gps_idx, 'RunTime']:.1f}s)")
 
-                            # 5. 最大ストロークと安定平均値の算出
                             f_stroke = get_stable_stroke(log_df, 'Front')
                             if f_stroke:
                                 ada_summary.append(f"・【フロント】瞬間最大ストローク: {f_stroke['val']:.1f}mm | ギャップ除外の安定平均: {f_stroke['stable_mean']:.1f}mm (Lap {f_stroke['lap']}, {f_stroke['time']:.1f}s付近)")
@@ -572,7 +566,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                 ada_summary.append(f"・【リア】瞬間最大ストローク: {r_stroke['val']:.1f}mm | ギャップ除外の安定平均: {r_stroke['stable_mean']:.1f}mm (Lap {r_stroke['lap']}, {r_stroke['time']:.1f}s付近)")
 
                         ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
-                      ada_summary.append("\n【1. 全体ピーク値（間引き前の生データより抽出）】")
                         num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
                         for col in num_cols:
                             max_val, min_val = log_df[col].max(), log_df[col].min()
@@ -580,35 +573,25 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                 ada_summary.append(f"{col} 最大値: {max_val:.2f}, 最小値: {min_val:.2f}")
 
                         # ==========================================
-                        # ★ここに追加！各ラップの正確なピーク値をAIにカンペとして渡す
+                        # ★ 各ラップのピークG・最大ストローク（カンペ作成処理）
                         if 'Lap' in log_df.columns:
-                            ada_summary.append("\n【1.5. 各ラップのピークG・最大ストローク（全データから抽出した正確な値）】")
+                            ada_summary.append("\n【1.5. 各ラップのピークG・最大ストローク（全データ抽出）】")
                             for current_lap in sorted(log_df['Lap'].dropna().unique()):
                                 lap_data = log_df[log_df['Lap'] == current_lap]
                                 if lap_data.empty: continue
                                 
                                 lap_str = f"・Lap {int(current_lap)}: "
                                 
-                                # 加減速Gの正確な最大・最小
                                 if 'Acc_G_Speed' in lap_data.columns:
                                     valid_g = lap_data['Acc_G_Speed'][(lap_data['Acc_G_Speed'] >= -1.6) & (lap_data['Acc_G_Speed'] <= 1.6)]
                                     if not valid_g.empty:
                                         lap_str += f"最大減速 {valid_g.min():.3f}G / 最大加速 {valid_g.max():.3f}G | "
                                         
-                                # フロントストロークの正確な最奥値
                                 if 'Front' in lap_data.columns:
                                     lap_str += f"Fストローク最奥 {lap_data['Front'].min():.1f}mm | "
                                     
                                 ada_summary.append(lap_str)
                         # ==========================================
-
-                        df_trend = log_df[exist_cols].copy()
-                        df_trend[num_cols] = df_trend[num_cols].rolling(window=5, min_periods=1).mean()  
-                        num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
-                        for col in num_cols:
-                            max_val, min_val = log_df[col].max(), log_df[col].min()
-                            if pd.notna(max_val) and pd.notna(min_val):
-                                ada_summary.append(f"{col} 最大値: {max_val:.2f}, 最小値: {min_val:.2f}")
 
                         df_trend = log_df[exist_cols].copy()
                         df_trend[num_cols] = df_trend[num_cols].rolling(window=5, min_periods=1).mean()
@@ -714,7 +697,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                    ・【最大ストロークと安定平均位置】コース全周において前後が最大ストロークした場所を明記。また、事前処理で計算された「ギャップ除外の安定平均ストローク」の数値を必ず引き合いに出し、エアバネの特性評価に使用すること。
                 2. [旋回を引き出す前後動作]
                    ※【厳守事項】ロギングの数値を語る際、読者が迷子にならないよう必ず「▼ Lap O - 1コーナー進入」のようにサブタイトルとしてコーナー名を明示するか、文中で「ヘアピンにおいては〜」等、都度場所を明記すること。他のコーナーを引き合いに出す場合も同様。
-                   ・ブレーキング分析: (評価結果を記載)
+                   ・ブレーキング分析: (評価結果を記載。ここでAIへ渡されたカンペ「各ラップのピークG・最大ストローク」を参照し、間引きデータで消えてしまった本当のピーク値を考慮して解説すること)
                    ・倒しこみ動作: (評価結果を記載)
                    ・初期旋回操舵: (評価結果を記載)
                    ・後期旋回操舵: (評価結果を記載)
