@@ -263,7 +263,6 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-
 # ===============================
 # ★ AI連携用データ入力UI
 # ===============================
@@ -277,35 +276,32 @@ col_ai1, col_ai2 = st.columns(2)
 with col_ai1:
     st.subheader("A. セッティングの状態入力")
 
-        if "単一" in analysis_mode:
-            track_name = st.text_input("サーキット名（任意）", value=st.session_state.get("track_name", ""), placeholder="例：近畿スポーツランド、鈴鹿サーキット")
-            
-            st.markdown("##### ⚙️ 車体・電子制御・ブレーキ設定")
-            c_etc1, c_etc2 = st.columns(2)
-            with c_etc1:
-                brake_pad = st.selectbox("ブレーキパッド初期特性", ["2: リニア (握力に比例)", "1: 初期大 (ガツンと効く)", "3: 奥大 (奥で強く効く)"])
-                steering_damper = st.selectbox("ステアリングダンパー減衰", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
-            with c_etc2:
-                tc_base = st.selectbox("トラクションコントロール(TC)基本設定", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
-                eb_base = st.selectbox("エンジンブレーキ(EBC)・アイドル設定", ["無し/固定", "1 (エンブレ弱)", "2", "3", "4", "5 (エンブレ強)"])
-            tc_memo = st.text_input("TC・電子制御 コーナー別指定 (自由記入)", placeholder="例: 最終コーナーのみTCを強めに設定(レベル4)")
+    if "単一" in analysis_mode:
+        track_name = st.text_input("サーキット名（任意）", value=st.session_state.get("track_name", ""), placeholder="例：近畿スポーツランド、鈴鹿サーキット")
+        
+        st.markdown("##### ⚙️ 車体・電子制御・ブレーキ設定")
+        c_etc1, c_etc2 = st.columns(2)
+        with c_etc1:
+            brake_pad = st.selectbox("ブレーキパッド初期特性", ["2: リニア (握力に比例)", "1: 初期大 (ガツンと効く)", "3: 奥大 (奥で強く効く)"])
+            steering_damper = st.selectbox("ステアリングダンパー減衰", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
+        with c_etc2:
+            tc_base = st.selectbox("トラクションコントロール(TC)基本設定", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
+            eb_base = st.selectbox("エンジンブレーキ(EBC)・アイドル設定", ["無し/固定", "1 (エンブレ弱)", "2", "3", "4", "5 (エンブレ強)"])
+        tc_memo = st.text_input("TC・電子制御 コーナー別指定 (自由記入)", placeholder="例: 最終コーナーのみTCを強めに設定(レベル4)")
 
-            # ▼ここから下のインデント（左側の空白）がズレていたと思われます
-            st.markdown("##### 🛞 タイヤ・空気圧・環境設定")
-            tire_info = st.text_input("タイヤ銘柄・状態（任意）", value=st.session_state.get("tire_info", ""), placeholder="例：リア TT93PRO ミディアムソフト 100LAP")
-            c_tp1, c_tp2, c_tp3 = st.columns(3)
-            with c_tp1:
-                tire_p_unit = st.selectbox("空気圧 単位", ["kgf/cm2 (kg)", "PSI", "Bar"])
-                tire_temp = st.number_input("測定時タイヤ温度 [℃]", value=15, step=1)
-            with c_tp2:
-                tire_p_front = st.number_input("フロント空気圧", value=1.50, step=0.05)
-                track_temp = st.number_input("路面温度 [℃] (任意)", value=15, step=1)
-            with c_tp3:
-                tire_p_rear = st.number_input("リア空気圧", value=1.90, step=0.05)
-                track_cond = st.selectbox("路面状況", ["ドライ", "ハーフウェット", "ウェット"])
+        st.markdown("##### 🛞 タイヤ・空気圧・環境設定")
+        tire_info = st.text_input("タイヤ銘柄・状態（任意）", value=st.session_state.get("tire_info", ""), placeholder="例：リア TT93PRO ミディアムソフト 100LAP")
+        c_tp1, c_tp2, c_tp3 = st.columns(3)
+        with c_tp1:
+            tire_p_unit = st.selectbox("空気圧 単位", ["kgf/cm2 (kg)", "PSI", "Bar"])
+            tire_temp = st.number_input("測定時タイヤ温度 [℃]", value=15, step=1)
+        with c_tp2:
+            tire_p_front = st.number_input("フロント空気圧", value=1.50, step=0.05)
+            track_temp = st.number_input("路面温度 [℃] (任意)", value=15, step=1)
+        with c_tp3:
+            tire_p_rear = st.number_input("リア空気圧", value=1.90, step=0.05)
             track_cond = st.selectbox("路面状況", ["ドライ", "ハーフウェット", "ウェット"])
         
-        # ★追加：バネ向き等のフロントUI
         st.markdown("##### 🏍️ フロント設定")
         front_spring_dir = st.selectbox("フロント バネの向き (密・荒のセット方向)", ["指定なし/等ピッチ", "密巻きが下 (地面側)", "密巻きが上 (車体側)"])
         c_f1, c_f2 = st.columns(2)
@@ -323,7 +319,6 @@ with col_ai1:
         with c_f4:
             reb_level = st.slider("フロント伸び側（リバウンド）", 1, 10, int(st.session_state.get("reb_level", 5)))
 
-        # ★追加：ツインサス注意書きとバネ向きのリアUI
         st.markdown("##### 🏍️ リア設定")
         st.caption("※リアツインサスの場合は、左右のバネレートを合算した数値を入力してください。")
         rear_spring_dir = st.selectbox("リア バネの向き (密・荒のセット方向)", ["指定なし/等ピッチ", "密巻きが下 (地面側)", "密巻きが上 (車体側)"])
@@ -351,8 +346,11 @@ with col_ai1:
         st.write("💡 **比較する2つのデータ（CSV）の違いをメモしてください。**")
         data_a_memo = st.text_area("Data A (基準) の条件・ファイル名", value="例：Data_A.csv (フロントバネ5.5Nm, リア車高±0mm)")
         data_b_memo = st.text_area("Data B (比較) の条件・ファイル名", value="例：Data_B.csv (フロントバネ5.0Nm, リア車高+2mm)")
-        track_name = st.text_input("サーキット名（任意）", value="", placeholder="例：近畿スポーツランド")
-        tire_info = st.text_area("タイヤ・その他共通設定（前後サス・ディメンション・電子制御等）", value="", placeholder="例：前後タイヤ新品。TCはレベル2固定。")
+        # ★ 重複エラー回避のため、keyを設定しています
+        track_name = st.text_input("サーキット名（任意）", value="", placeholder="例：近畿スポーツランド", key="track_name_compare")
+        tire_info = st.text_area("タイヤ・その他共通設定（前後サス・ディメンション・電子制御等）", value="", placeholder="例：前後タイヤ新品。TCはレベル2固定。", key="tire_info_compare")
+
+# --- (ここから下は既存の with col_ai2: のコードが続きます) ---
 
 with col_ai2:
     st.subheader("B. 解析したい課題と状況の入力")
