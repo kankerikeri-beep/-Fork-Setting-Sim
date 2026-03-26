@@ -536,7 +536,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                 except Exception:
                                     log_df['Acc_G_Speed'] = raw_g_speed.rolling(window=window_len, center=True).mean()
                                 
-                                # ★ [追加] 低速ノイズ除外：車速が「60km/h以上」出ている時の減速のみを評価
+                                # ★ 低速ノイズ除外：車速が「60km/h以上」出ている時の減速のみを評価
                                 valid_g_speed = log_df.loc[valid_laps_mask, 'Acc_G_Speed']
                                 valid_g_speed = valid_g_speed[(valid_g_speed >= -1.6) & (valid_g_speed <= 1.6) & (log_df['Speed'] >= 60.0)]
                                 
@@ -560,7 +560,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                 except Exception:
                                     log_df['Acc_G_GPS'] = raw_g_gps.rolling(window=window_len, center=True).mean()
                                     
-                                # ★ [追加] 低速ノイズ除外：GPS速度が「60km/h以上」出ている時の減速のみを評価
+                                # ★ 低速ノイズ除外：GPS速度が「60km/h以上」出ている時の減速のみを評価
                                 valid_g_gps = log_df.loc[valid_laps_mask, 'Acc_G_GPS']
                                 valid_g_gps = valid_g_gps[(valid_g_gps >= -1.6) & (valid_g_gps <= 1.6) & (log_df[gps_cols[0]] >= 60.0)]
                                 if not valid_g_gps.empty:
@@ -702,7 +702,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
 ・タイヤ・電子制御等共通情報: {tire_info}
 """
 
-focus_instruction = f"""
+                focus_instruction = f"""
                 【最重要指示（絶対厳守）】
                 ・【対象ラップの絶対厳守】ユーザーは「{target_lap_mode}」を指定しています。特に「ベストラップ付近を中心に」と指定されている場合、最大減速Gや最大ストロークが別の遅いラップ（異常値）で記録されていたとしても、**必ず最もタイムが速い「ベストラップ」の挙動を分析の主軸（主語）**としてください。異常値に引っ張られて遅いラップを中心に解説することは厳禁です。
                 """
@@ -789,6 +789,12 @@ focus_instruction = f"""
                 以下はPythonデータエンジニアによって事前処理された【走行ログ要約データ】です：
                 {log_contents}
                 """
+
+                api_request_data = [full_prompt]
+                if uploaded_images:
+                    for img_file in uploaded_images:
+                        img = Image.open(img_file)
+                        api_request_data.append(img)
 
                 response = model.generate_content(api_request_data)
 
