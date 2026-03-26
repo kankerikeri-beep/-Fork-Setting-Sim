@@ -440,7 +440,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
     elif "GEMINI_API_KEY" not in st.secrets:
         st.error("⚠️ APIキーが設定されていません。StreamlitのSecretsを確認してください。")
     else:
-        with st.spinner("データエンジニア(Python)が速度曲線の微分解析による高精度G算出を実行中..."):
+        with st.spinner("データエンジニア(Python)が相対時間ピンポイント探索による高精度G抽出を実行中..."):
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -472,14 +472,12 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                     
                     exist_cols = [c for c in selected_cols if c in log_df.columns]
                     if exist_cols:
-                        ada_summary.append("\n【0. パフォーマンス・姿勢指標（速度曲線微分抽出＆異常ラップ除外済）】")
+                        ada_summary.append("\n【0. パフォーマンス・姿勢指標（相対時間ピンポイント探索済）】")
                         
                         if 'RunTime' in log_df.columns:
                             log_df['dt'] = log_df['RunTime'].diff().fillna(0.1)
                             log_df['dt'] = log_df['dt'].apply(lambda x: x if x > 0 else 0.1)
                             
-                            # ==========================================
-                            # ★ 異常ラップ自動除外フィルター
                             valid_laps_mask = pd.Series(True, index=log_df.index)
                             valid_laps = []
                             lap_durations = pd.Series(dtype=float)
@@ -501,15 +499,13 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                         if excluded_laps:
                                             valid_laps_mask = log_df['Lap'].isin(valid_laps)
                                             ada_summary.append(f"・[異常値除外] タイム基準で Lap {excluded_laps} を除外しました。")
-                            # ==========================================
                             
                             dt_median = log_df['dt'].median()
-                            # ★ 抽出ウィンドウを0.5秒幅に戻し、ピークを潰さずにノイズだけを消す
-                            window_len = int(0.5 / dt_median) if dt_median > 0 else 11
+                            # ★ プロ基準のフィルタリング: 0.25秒幅の軽いスムージングで本当のピークを残す
+                            window_len = int(0.25 / dt_median) if dt_median > 0 else 5
                             if window_len % 2 == 0: window_len += 1
-                            if window_len < 5: window_len = 5
+                            if window_len < 3: window_len = 3
                             
-                            # 1. Gセンサー実測値の処理
                             lon_g_cols = [c for c in log_df.columns if c.lower() in ['g_lon', 'long', 'lon_g', '縦g', 'acc_x', 'accel_x']]
                             has_lon_g_sensor = len(lon_g_cols) > 0
                             
@@ -520,32 +516,15 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     log_df['Acc_G_Sensor'] = savgol_filter(raw_lon_g, window_length=window_len, polyorder=2)
                                 except Exception:
                                     log_df['Acc_G_Sensor'] = raw_lon_g.rolling(window=window_len, center=True).mean()
-                                    
-                                valid_g_sens = log_df.loc[valid_laps_mask, 'Acc_G_Sensor']
-                                valid_g_sens = valid_g_sens[(valid_g_sens >= -2.0) & (valid_g_sens <= 2.0)]
-                                if not valid_g_sens.empty:
-                                    min_g_idx = valid_g_sens.idxmin()
-                                    max_g_idx = valid_g_sens.idxmax()
-                                    ada_summary.append(f"・[★Gセンサー実測] 最大減速G: {valid_g_sens.min():.3f} G (Lap {log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_g_idx, 'RunTime']:.1f}s)")
 
-                            # 2. 車速センサー推計Gの処理（★速度曲線の直接微分へ変更）
                             if 'Speed' in log_df.columns:
                                 speed_ms = log_df['Speed'] / 3.6
                                 try:
-                                    # scipyの機能で速度曲線の「傾き」を数学的に計算し、加速度を高精度抽出
                                     log_df['Acc_G_Speed'] = savgol_filter(speed_ms, window_length=window_len, polyorder=2, deriv=1, delta=dt_median) / 9.80665
                                 except Exception:
                                     raw_g_speed = speed_ms.diff().fillna(0) / log_df['dt'] / 9.80665
                                     log_df['Acc_G_Speed'] = raw_g_speed.rolling(window=window_len, center=True).mean()
-                                
-                                valid_g_speed = log_df.loc[valid_laps_mask, 'Acc_G_Speed']
-                                valid_g_speed = valid_g_speed[(valid_g_speed >= -2.0) & (valid_g_speed <= 2.0) & (log_df['Speed'] >= 40.0)]
-                                if not valid_g_speed.empty:
-                                    min_g_idx = valid_g_speed.idxmin()
-                                    label_prefix = "[車速センサ微分]" if not has_lon_g_sensor else "[参考:車速推計]"
-                                    ada_summary.append(f"・{label_prefix} 最大減速G: {valid_g_speed.min():.3f} G (Lap {log_df.loc[min_g_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_g_idx, 'RunTime']:.1f}s)")
 
-                            # 3. GPS速度からの推計Gの処理（★同様に直接微分へ変更）
                             gps_cols = [c for c in log_df.columns if c.lower() in ['gps_speed', 'gpsspeed']]
                             if gps_cols:
                                 gps_ms = log_df[gps_cols[0]] / 3.6
@@ -554,15 +533,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                 except Exception:
                                     raw_g_gps = gps_ms.diff().fillna(0) / log_df['dt'] / 9.80665
                                     log_df['Acc_G_GPS'] = raw_g_gps.rolling(window=window_len, center=True).mean()
-                                    
-                                valid_g_gps = log_df.loc[valid_laps_mask, 'Acc_G_GPS']
-                                valid_g_gps = valid_g_gps[(valid_g_gps >= -2.0) & (valid_g_gps <= 2.0) & (log_df[gps_cols[0]] >= 40.0)]
-                                if not valid_g_gps.empty:
-                                    min_gps_idx = valid_g_gps.idxmin()
-                                    label_prefix = "[GPS速度微分]" if not has_lon_g_sensor else "[参考:GPS推計]"
-                                    ada_summary.append(f"・{label_prefix} 最大減速G: {valid_g_gps.min():.3f} G (Lap {log_df.loc[min_gps_idx, 'Lap'] if 'Lap' in log_df.columns else '不明'}, {log_df.loc[min_gps_idx, 'RunTime']:.1f}s)")
 
-                            # 4. 横Gデータの取得
                             lat_g_cols = [c for c in log_df.columns if c.lower() in ['g_lat', 'latg', 'lat_g', '横g']]
                             if lat_g_cols:
                                 lat_g_col = lat_g_cols[0]
@@ -571,22 +542,17 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                     log_df[lat_g_col] = savgol_filter(raw_lat_g_sens, window_length=window_len, polyorder=2)
                                 except Exception:
                                     log_df[lat_g_col] = raw_lat_g_sens.rolling(window=window_len, center=True).mean()
-                            
-                            # 5. 最大ストローク (有効ラップのみ)
+
                             f_stroke = get_stable_stroke(log_df[valid_laps_mask], 'Front')
-                            if f_stroke:
-                                ada_summary.append(f"・【フロント】瞬間最大ストローク: {f_stroke['val']:.1f}mm | ギャップ除外安定平均: {f_stroke['stable_mean']:.1f}mm")
                             r_stroke = get_stable_stroke(log_df[valid_laps_mask], 'Rear')
-                            if r_stroke:
-                                ada_summary.append(f"・【リア】瞬間最大ストローク: {r_stroke['val']:.1f}mm | ギャップ除外安定平均: {r_stroke['stable_mean']:.1f}mm")
 
                             # ==========================================
-                            # ★ 1.6 コーナー別（セクター別）の正確なピークG抽出
+                            # ★ 1.6 相対時間によるピンポイント・ピーク探索（MoTeC等と同じ手法）
                             if 'Lap' in log_df.columns and len(valid_laps) > 0:
                                 best_lap_num = lap_durations[lap_durations.index.isin(valid_laps)].idxmin()
                                 target_laps = lap_durations[lap_durations.index.isin(valid_laps)].sort_values().index[:3].tolist()
                                 
-                                ada_summary.append("\n【1.6. コーナー別（セクター別）の正確なピークG比較】")
+                                ada_summary.append("\n【1.6. コーナー別の正確なピークG比較（相対時間による同期抽出）】")
                                 
                                 best_lap_df = log_df[log_df['Lap'] == best_lap_num].copy()
                                 if not best_lap_df.empty:
@@ -599,43 +565,47 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                         g_col_to_use = 'Acc_G_GPS'
 
                                     if g_col_to_use:
-                                        start_time = best_lap_df['RunTime'].min()
-                                        end_time = best_lap_df['RunTime'].max()
-                                        lap_time_len = end_time - start_time
+                                        best_lap_df['RelTime'] = best_lap_df['RunTime'] - best_lap_df['RunTime'].min()
                                         
-                                        sector_stats = []
-                                        for i in range(10):
-                                            s_start = start_time + (lap_time_len * (i / 10.0))
-                                            s_end = start_time + (lap_time_len * ((i + 1) / 10.0))
-                                            sector_df = best_lap_df[(best_lap_df['RunTime'] >= s_start) & (best_lap_df['RunTime'] < s_end)]
-                                            
-                                            # ★ 条件を緩和し、少しでもブレーキをかけていればNaNにならないように
-                                            if g_col_to_use in ['Acc_G_Speed', 'Acc_G_GPS'] and 'Speed' in sector_df.columns:
-                                                valid_g_sec = sector_df[g_col_to_use][(sector_df[g_col_to_use] >= -2.0) & (sector_df[g_col_to_use] <= 2.0) & (sector_df['Speed'] >= 40.0)]
+                                        # --- 減速G トップ3箇所の特定 ---
+                                        temp_dec = best_lap_df.copy()
+                                        top_braking = []
+                                        for i in range(3):
+                                            if temp_dec.empty: break
+                                            if g_col_to_use in ['Acc_G_Speed', 'Acc_G_GPS'] and 'Speed' in temp_dec.columns:
+                                                valid_temp = temp_dec[(temp_dec[g_col_to_use] >= -2.0) & (temp_dec['Speed'] >= 40.0)]
                                             else:
-                                                valid_g_sec = sector_df[g_col_to_use][(sector_df[g_col_to_use] >= -2.0) & (sector_df[g_col_to_use] <= 2.0)]
+                                                valid_temp = temp_dec[(temp_dec[g_col_to_use] >= -2.0)]
                                             
-                                            min_g = valid_g_sec.min() if not valid_g_sec.empty else np.nan
-                                            max_g = valid_g_sec.max() if not valid_g_sec.empty else np.nan
-                                            sector_stats.append({'sector': i+1, 'min_g': min_g, 'max_g': max_g, 'start_pct': i/10.0, 'end_pct': (i+1)/10.0})
-                                        
-                                        # トップ3の減速セクター (NaNを除外してソート)
-                                        valid_braking = [s for s in sector_stats if not np.isnan(s['min_g'])]
-                                        top_braking = sorted(valid_braking, key=lambda x: x['min_g'])[:3]
-                                        ada_summary.append("\n▼ 【減速G】トップ3箇所のコーナー比較（※順位はベストラップを基準）")
-                                        for rank, sec in enumerate(top_braking, 1):
-                                            if sec['min_g'] > -0.1: continue
-                                            sec_str = f" [減速 {rank}位] セクター{sec['sector']} (Lap進行度 {int(sec['start_pct']*100)}%〜{int(sec['end_pct']*100)}%地点):\n"
+                                            if valid_temp.empty: break
+                                            idx_min = valid_temp[g_col_to_use].idxmin()
+                                            min_g = valid_temp.loc[idx_min, g_col_to_use]
+                                            peak_time = valid_temp.loc[idx_min, 'RelTime']
+                                            
+                                            if min_g > -0.1: break
+                                            top_braking.append({'rel_time': peak_time, 'g_val': min_g, 'rank': i+1})
+                                            
+                                            # 特定したピークの前後3.0秒を除外して、次のコーナーのピークを探す
+                                            temp_dec = temp_dec[(temp_dec['RelTime'] < peak_time - 3.0) | (temp_dec['RelTime'] > peak_time + 3.0)]
+
+                                        ada_summary.append("\n▼ 【減速G】トップ3箇所のコーナー比較（※ベストラップのピーク発生時間±1.5秒の範囲を探索）")
+                                        # 発生時間が早い順（コーナー順）に並べ替え
+                                        top_braking_sorted = sorted(top_braking, key=lambda x: x['rel_time'])
+                                        for sec in top_braking_sorted:
+                                            pct = (sec['rel_time'] / best_lap_df['RelTime'].max()) * 100
+                                            sec_str = f" [減速 {sec['rank']}位のポイント] Lap開始から約 {sec['rel_time']:.1f}秒 地点 (進行度 約{int(pct)}%):\n"
                                             for lap_n in target_laps:
                                                 l_df = log_df[log_df['Lap'] == lap_n]
                                                 l_start = l_df['RunTime'].min()
-                                                l_len = l_df['RunTime'].max() - l_start
-                                                l_sec_df = l_df[(l_df['RunTime'] >= l_start + (l_len * sec['start_pct'])) & (l_df['RunTime'] < l_start + (l_len * sec['end_pct']))]
+                                                # ★ ±1.5秒のピンポイント探索でズレを吸収
+                                                search_start = l_start + sec['rel_time'] - 1.5
+                                                search_end = l_start + sec['rel_time'] + 1.5
+                                                l_sec_df = l_df[(l_df['RunTime'] >= search_start) & (l_df['RunTime'] <= search_end)]
                                                 
                                                 if g_col_to_use in ['Acc_G_Speed', 'Acc_G_GPS'] and 'Speed' in l_sec_df.columns:
-                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] >= -2.0) & (l_sec_df[g_col_to_use] <= 2.0) & (l_sec_df['Speed'] >= 40.0)]
+                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] >= -2.0) & (l_sec_df['Speed'] >= 40.0)]
                                                 else:
-                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] >= -2.0) & (l_sec_df[g_col_to_use] <= 2.0)]
+                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] >= -2.0)]
                                                 
                                                 l_min_g = l_v_g.min() if not l_v_g.empty else np.nan
                                                 mark = "★ベスト" if lap_n == best_lap_num else "比較"
@@ -643,23 +613,41 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                                 sec_str += f"   - Lap {int(lap_n)} ({mark}, {lap_durations[lap_n]:.3f}s): {val_str}\n"
                                             ada_summary.append(sec_str)
 
-                                        # トップ2の加速セクター
-                                        valid_accel = [s for s in sector_stats if not np.isnan(s['max_g'])]
-                                        top_accel = sorted(valid_accel, key=lambda x: x['max_g'], reverse=True)[:2]
-                                        ada_summary.append("\n▼ 【加速G】トップ2箇所の立ち上がり比較（※順位はベストラップを基準）")
-                                        for rank, sec in enumerate(top_accel, 1):
-                                            if sec['max_g'] < 0.1: continue
-                                            sec_str = f" [加速 {rank}位] セクター{sec['sector']} (Lap進行度 {int(sec['start_pct']*100)}%〜{int(sec['end_pct']*100)}%地点):\n"
+                                        # --- 加速G トップ2箇所の特定 ---
+                                        temp_acc = best_lap_df.copy()
+                                        top_accel = []
+                                        for i in range(2):
+                                            if temp_acc.empty: break
+                                            if g_col_to_use in ['Acc_G_Speed', 'Acc_G_GPS'] and 'Speed' in temp_acc.columns:
+                                                valid_temp = temp_acc[(temp_acc[g_col_to_use] <= 2.0) & (temp_acc['Speed'] >= 40.0)]
+                                            else:
+                                                valid_temp = temp_acc[(temp_acc[g_col_to_use] <= 2.0)]
+                                            
+                                            if valid_temp.empty: break
+                                            idx_max = valid_temp[g_col_to_use].idxmax()
+                                            max_g = valid_temp.loc[idx_max, g_col_to_use]
+                                            peak_time = valid_temp.loc[idx_max, 'RelTime']
+                                            
+                                            if max_g < 0.1: break
+                                            top_accel.append({'rel_time': peak_time, 'g_val': max_g, 'rank': i+1})
+                                            temp_acc = temp_acc[(temp_acc['RelTime'] < peak_time - 3.0) | (temp_acc['RelTime'] > peak_time + 3.0)]
+
+                                        ada_summary.append("\n▼ 【加速G】トップ2箇所の立ち上がり比較（※ベストラップのピーク発生時間±1.5秒の範囲を探索）")
+                                        top_accel_sorted = sorted(top_accel, key=lambda x: x['rel_time'])
+                                        for sec in top_accel_sorted:
+                                            pct = (sec['rel_time'] / best_lap_df['RelTime'].max()) * 100
+                                            sec_str = f" [加速 {sec['rank']}位のポイント] Lap開始から約 {sec['rel_time']:.1f}秒 地点 (進行度 約{int(pct)}%):\n"
                                             for lap_n in target_laps:
                                                 l_df = log_df[log_df['Lap'] == lap_n]
                                                 l_start = l_df['RunTime'].min()
-                                                l_len = l_df['RunTime'].max() - l_start
-                                                l_sec_df = l_df[(l_df['RunTime'] >= l_start + (l_len * sec['start_pct'])) & (l_df['RunTime'] < l_start + (l_len * sec['end_pct']))]
+                                                search_start = l_start + sec['rel_time'] - 1.5
+                                                search_end = l_start + sec['rel_time'] + 1.5
+                                                l_sec_df = l_df[(l_df['RunTime'] >= search_start) & (l_df['RunTime'] <= search_end)]
                                                 
                                                 if g_col_to_use in ['Acc_G_Speed', 'Acc_G_GPS'] and 'Speed' in l_sec_df.columns:
-                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] >= -2.0) & (l_sec_df[g_col_to_use] <= 2.0) & (l_sec_df['Speed'] >= 40.0)]
+                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] <= 2.0) & (l_sec_df['Speed'] >= 40.0)]
                                                 else:
-                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] >= -2.0) & (l_sec_df[g_col_to_use] <= 2.0)]
+                                                    l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] <= 2.0)]
                                                 
                                                 l_max_g = l_v_g.max() if not l_v_g.empty else np.nan
                                                 mark = "★ベスト" if lap_n == best_lap_num else "比較"
@@ -667,13 +655,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                                 sec_str += f"   - Lap {int(lap_n)} ({mark}, {lap_durations[lap_n]:.3f}s): {val_str}\n"
                                             ada_summary.append(sec_str)
                             # ==========================================
-
-                        ada_summary.append("\n【1. 全体ピーク値】")
-                        num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
-                        for col in num_cols:
-                            max_val, min_val = log_df[col].max(), log_df[col].min()
-                            if pd.notna(max_val) and pd.notna(min_val):
-                                ada_summary.append(f"{col} 最大値: {max_val:.2f}, 最小値: {min_val:.2f}")
 
                         df_trend = log_df[exist_cols].copy()
                         df_trend[num_cols] = df_trend[num_cols].rolling(window=5, min_periods=1).mean()
@@ -720,8 +701,9 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
 
                 focus_instruction = f"""
                 【最重要指示（絶対厳守）】
-                ・ユーザーは「{target_lap_mode}」を指定しています。必ず「ベストラップ」の挙動を主軸にしてください。
-                ・【★Gの数値に関する厳命】Gの数値を言及する際は、必ずデータ要約の「【1.6. コーナー別（セクター別）の正確なピークG比較】」に記載されている『間引き前実測値』をそのまま引用してください。
+                ・【対象ラップの絶対厳守】必ず「ベストラップ」の挙動を主軸にしてください。
+                ・【★G数値の厳命】Gの数値を言及する際は、データ要約の「1.6. コーナー別の正確なピークG比較」の数値をそのまま引用してください。
+                ・【★コーナー名称の幻覚禁止】推測する際は「1コーナー(S字進入)」や「Vコーナー」など、存在するか分からないコース形状を想像（ハルシネーション）で創造しないでください。確証がない場合は「1コーナー」「第2ヘアピン」「バックストレートエンド」などシンプルな名称に留めること。
                 """
                 if "フィーリング重視" in analysis_focus:
                     focus_instruction += "・シミュレーターの反力テーブルの数値（理論値）に固執せず、実際のサスの動きの流れと、ユーザーの具体的な悩みを最優先にすり合わせ、論理的な解決策を提示してください。\n"
@@ -748,34 +730,15 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 {sensor_instruction}
 
                 =========================================
-                【評価基準（裏設定：出力見出しには直接書かず、内部の分析プロセスとして使用すること）】
-                AIは以下の基準を基に波形を分析し、結論を導き出してください。
-
-                ■ [旋回を引き出す前後動作] の評価基準
-                サスペンションの挙動が「鋭い旋回性を引き出すための動的な姿勢変化」を作り出せているかを以下の4点で評価する。
-                ・ブレーキング: フロントの高い初期ストロークスピードと適切なリアのリフト状態を作り出せているか。タイヤグリップの限界に合わせたフロントブレーキリリースができているか。
-                ・倒しこみ: ブレーキ終盤からのフロント側操舵(前後ブレーキ、バンク角、舵角補助)の状態を作り出せているか。
-                ・初期旋回: 減速と加速の間の旋回瞬間のフルバンク状態で、適切な車高から実舵角をより引き出せる操舵状態を作り出せているか。
-                ・後期旋回: 瞬間旋回後半にて前後ブレーキ操作(特にリアブレーキ)と荷重コントロールでのリアタイヤの変形で、リアが外側軌道へと向かわせるリア操舵状態を作り出せているか。
-
-                ■ [トラクションと車体の乱れ] の評価基準
-                アクセルON時のリアの沈み込みとフロントの伸びを分析し、「効率の良い加速状態を作り出せているか」、車体の乱れ（跳ねやチャタリング）が発生していないか確認と評価すること。
-
-                ■ [燃調・その他の補足基準]
-                ・燃調: AfrやRpmからトルク変動の悪影響がないか確認し、必要に応じた燃調修正案を提示すること。
-                ・リアサスペンションと荷重のリアブレーキコントロール : ストローク奥の部分の活用や、加速時のリア安定感向上について評価すること。
-                ・サスセッティングの主目的: 適切な動的姿勢変化を見つけることである。
-                =========================================
-
                 【出力フォーマット】
                 ※以下の1〜5のシンプルな見出しのみを使用して出力してください。
 
                 1. [データ抽出とコース把握]
-                   ・【コーナー名称の直感的な明示（必須）】セクター1などの表記に加え、AIの持つサーキット知識（{track_name}）と速度推移・進行度から推測し、「1コーナー」「第1ヘアピン」「左2コーナー」など、直感的に場所を特定できる名称を必ず割り当てて記述すること。
-                   ・【採用したGデータの根拠】優先度に基づき、どのデータソースを採用したか（また、その理由としての車速センサー特有のノイズについて）を明記すること。
-                   ・【★ブレーキング減速G トップ3箇所（各3ラップ・タイム併記）】データ要約の「1.6. コーナー別比較」にある減速Gトップ3のリストを、ラップタイム（秒数）も含めてそのまま引用し、直感的なコーナー名を添えて出力すること。
+                   ・【コーナー名称のシンプルな明示】「Lap開始からO秒地点」という表記に加え、AIの持つサーキット知識（{track_name}）と速度推移・進行度から推測し、「1コーナー」「第1ヘアピン」などシンプルな名称を割り当てて記述すること（幻覚のS字などは禁止）。
+                   ・【採用したGデータの根拠】どのデータソースを採用したかを明記すること。
+                   ・【★ブレーキング減速G トップ3箇所（各3ラップ・タイム併記）】データ要約の「1.6. コーナー別比較」にある減速Gトップ3のリストをそのまま引用すること。
                    ・【★ストレート加速G トップ2箇所（各3ラップ・タイム併記）】同様に加速Gリストを引用し出力すること。
-                   ・【最大ストロークと安定平均位置】コース全周において前後が最大ストロークした場所と、ギャップ除外の安定平均ストロークの数値を記載すること。
+                   ・【最大ストロークと安定平均位置】
                 2. [旋回を引き出す前後動作]
                    ・ブレーキング分析: (評価結果を記載)
                    ・倒しこみ動作: (評価結果を記載)
