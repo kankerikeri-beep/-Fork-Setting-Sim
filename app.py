@@ -656,6 +656,9 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                             ada_summary.append(sec_str)
                             # ==========================================
 
+                        # ★ ここで num_cols をしっかり定義！（エラー修正箇所）
+                        num_cols = log_df[exist_cols].select_dtypes(include=np.number).columns
+
                         df_trend = log_df[exist_cols].copy()
                         df_trend[num_cols] = df_trend[num_cols].rolling(window=5, min_periods=1).mean()
                         step = max(1, len(df_trend) // 300)
