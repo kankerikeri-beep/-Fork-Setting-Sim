@@ -440,7 +440,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
     elif "GEMINI_API_KEY" not in st.secrets:
         st.error("⚠️ APIキーが設定されていません。StreamlitのSecretsを確認してください。")
     else:
-        with st.spinner("データエンジニア(Python)が相対時間ピンポイント探索による高精度G抽出を実行中..."):
+        with st.spinner("データエンジニア(Python)が区間タイム・走行距離の算出と高度な解析を実行中..."):
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -501,7 +501,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                             ada_summary.append(f"・[異常値除外] タイム基準で Lap {excluded_laps} を除外しました。")
                             
                             dt_median = log_df['dt'].median()
-                            # ★ プロ基準のフィルタリング: 0.25秒幅の軽いスムージングで本当のピークを残す
                             window_len = int(0.25 / dt_median) if dt_median > 0 else 5
                             if window_len % 2 == 0: window_len += 1
                             if window_len < 3: window_len = 3
@@ -547,7 +546,6 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                             r_stroke = get_stable_stroke(log_df[valid_laps_mask], 'Rear')
 
                             # ==========================================
-                            # ★ 1.6 相対時間によるピンポイント・ピーク探索（MoTeC等と同じ手法）
                             if 'Lap' in log_df.columns and len(valid_laps) > 0:
                                 best_lap_num = lap_durations[lap_durations.index.isin(valid_laps)].idxmin()
                                 target_laps = lap_durations[lap_durations.index.isin(valid_laps)].sort_values().index[:3].tolist()
@@ -570,7 +568,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                         # --- 減速G トップ2箇所の特定 ---
                                         temp_dec = best_lap_df.copy()
                                         top_braking = []
-                                        for i in range(2): # 3箇所から2箇所に変更
+                                        for i in range(2): 
                                             if temp_dec.empty: break
                                             if g_col_to_use in ['Acc_G_Speed', 'Acc_G_GPS'] and 'Speed' in temp_dec.columns:
                                                 valid_temp = temp_dec[(temp_dec[g_col_to_use] >= -2.0) & (temp_dec['Speed'] >= 40.0)]
@@ -584,14 +582,12 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                             
                                             if min_g > -0.1: break
                                             top_braking.append({'rel_time': peak_time, 'g_val': min_g, 'rank': i+1})
-                                            
                                             temp_dec = temp_dec[(temp_dec['RelTime'] < peak_time - 3.0) | (temp_dec['RelTime'] > peak_time + 3.0)]
 
                                         ada_summary.append("\n▼ 【減速G】トップ2箇所のコーナー比較")
                                         top_braking_sorted = sorted(top_braking, key=lambda x: x['rel_time'])
                                         for sec in top_braking_sorted:
                                             pct = (sec['rel_time'] / best_lap_df['RelTime'].max()) * 100
-                                            # 秒数表記を削除し、進行度のみにスッキリ変更
                                             sec_str = f" [減速 {sec['rank']}位] (Lap進行度 約{int(pct)}%地点):\n"
                                             for lap_n in target_laps:
                                                 l_df = log_df[log_df['Lap'] == lap_n]
@@ -611,8 +607,36 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                                 sec_str += f"   - Lap {int(lap_n)} ({mark}, {lap_durations[lap_n]:.3f}s): {val_str}\n"
                                             ada_summary.append(sec_str)
 
-                                        # --- 加速G ラップ開始時点の特定（1箇所のみ） ---
-                                        # ラップ開始直後 (進行度0~15%) の最大加速
+                                        # --- ★【新機能】走行ライン評価（ブレーキング開始〜立ち上がり開始の区間タイム・距離） ---
+                                        ada_summary.append("\n▼ 【走行ライン比較】トップ2減速ポイントの区間タイムと距離（ブレーキング開始〜加速開始）")
+                                        for sec in top_braking_sorted:
+                                            pct = (sec['rel_time'] / best_lap_df['RelTime'].max()) * 100
+                                            sec_str = f" [減速 {sec['rank']}位のコーナー区間] (Lap進行度 約{int(pct)}%地点):\n"
+                                            for lap_n in target_laps:
+                                                l_df = log_df[log_df['Lap'] == lap_n]
+                                                l_start = l_df['RunTime'].min()
+                                                peak_time_abs = l_start + sec['rel_time']
+                                                
+                                                search_start = l_df[(l_df['RunTime'] >= peak_time_abs - 3.0) & (l_df['RunTime'] <= peak_time_abs)]
+                                                search_end = l_df[(l_df['RunTime'] >= peak_time_abs) & (l_df['RunTime'] <= peak_time_abs + 5.0)]
+                                                
+                                                if not search_start.empty and not search_end.empty and 'Speed' in l_df.columns:
+                                                    b_starts = search_start[search_start[g_col_to_use] < -0.2]
+                                                    t_start = b_starts['RunTime'].min() if not b_starts.empty else peak_time_abs - 1.0
+                                                    
+                                                    a_ends = search_end[search_end[g_col_to_use] > 0.1]
+                                                    t_end = a_ends['RunTime'].min() if not a_ends.empty else peak_time_abs + 3.0
+                                                    
+                                                    sector_df = l_df[(l_df['RunTime'] >= t_start) & (l_df['RunTime'] <= t_end)]
+                                                    if not sector_df.empty:
+                                                        sector_time = t_end - t_start
+                                                        distance = (sector_df['Speed'] / 3.6 * sector_df['dt']).sum()
+                                                        min_speed = sector_df['Speed'].min()
+                                                        mark = "★ベスト" if lap_n == best_lap_num else "比較"
+                                                        sec_str += f"   - Lap {int(lap_n)} ({mark}): 区間タイム {sector_time:.2f}秒 / 走行距離 {distance:.1f}m / ボトム速度 {min_speed:.1f}km/h\n"
+                                            ada_summary.append(sec_str)
+
+                                        # --- 加速G ラップ開始時点の特定 ---
                                         temp_acc = best_lap_df[best_lap_df['RelTime'] <= best_lap_df['RelTime'].max() * 0.15].copy()
                                         top_accel = []
                                         if not temp_acc.empty:
@@ -629,10 +653,9 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                                 if max_g >= 0.1:
                                                     top_accel.append({'rel_time': peak_time, 'g_val': max_g, 'rank': 1})
 
-                                        ada_summary.append("\n▼ 【加速G】ラップ開始時点のストレート加速比較")
+                                        ada_summary.append("\n▼ 【加速G】ラップ開始時点のストレート加速比較（最高速度併記）")
                                         for sec in top_accel:
                                             pct = (sec['rel_time'] / best_lap_df['RelTime'].max()) * 100
-                                            # 秒数表記を削除
                                             sec_str = f" [ラップ開始時 加速] (Lap進行度 約{int(pct)}%地点):\n"
                                             for lap_n in target_laps:
                                                 l_df = log_df[log_df['Lap'] == lap_n]
@@ -647,8 +670,11 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                                                     l_v_g = l_sec_df[g_col_to_use][(l_sec_df[g_col_to_use] <= 2.0)]
                                                 
                                                 l_max_g = l_v_g.max() if not l_v_g.empty else np.nan
+                                                # ★ ラップ全体の最高速度を取得
+                                                lap_max_spd = l_df['Speed'].max() if 'Speed' in l_df.columns else (l_df[gps_cols[0]].max() if gps_cols else 0.0)
+                                                
                                                 mark = "★ベスト" if lap_n == best_lap_num else "比較"
-                                                val_str = f"{l_max_g:.3f} G" if not np.isnan(l_max_g) else "データなし"
+                                                val_str = f"{l_max_g:.3f} G / 最高速度: {lap_max_spd:.1f} km/h" if not np.isnan(l_max_g) else "データなし"
                                                 sec_str += f"   - Lap {int(lap_n)} ({mark}, {lap_durations[lap_n]:.3f}s): {val_str}\n"
                                             ada_summary.append(sec_str)
                             # ==========================================
@@ -702,7 +728,7 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 【最重要指示（絶対厳守）】
                 ・【対象ラップの絶対厳守】必ず「ベストラップ」の挙動を主軸にしてください。
                 ・【★G数値の厳命】Gの数値を言及する際は、データ要約の「1.6. コーナー別の正確なピークG比較」の数値をそのまま引用してください。
-                ・【★コーナー名称の幻覚禁止】推測する際は「1コーナー(S字進入)」など、存在するか分からないコース形状を想像（ハルシネーション）で創造しないでください。確証がない場合は「1コーナー」「第2ヘアピン」「バックストレートエンド」などシンプルな名称に留めること。
+                ・【★コーナー名称の幻覚禁止】推測する際は存在するか分からないコース形状を想像（ハルシネーション）しないでください。確証がない場合は「1コーナー」「第2ヘアピン」「バックストレートエンド」などシンプルな名称に留めること。
                 """
                 if "フィーリング重視" in analysis_focus:
                     focus_instruction += "・シミュレーターの反力テーブルの数値（理論値）に固執せず、実際のサスの動きの流れと、ユーザーの具体的な悩みを最優先にすり合わせ、論理的な解決策を提示してください。\n"
@@ -733,35 +759,35 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                 AIは以下の基準を基に波形を分析し、結論を導き出してください。
 
                 ■ [旋回を引き出す前後動作] の評価基準
-                サスペンションの挙動が「鋭い旋回性を引き出すための動的な姿勢変化」を作り出せているかを以下の4点で評価する。
-                ・ブレーキング: フロントの高い初期ストロークスピードと適切なリアのリフト状態を作り出せているか。タイヤグリップの限界に合わせたフロントブレーキリリースができているか。
-                ・倒しこみ: ブレーキ終盤からのフロント側操舵(前後ブレーキ、バンク角、舵角補助)の状態を作り出せているか。
-                ・初期旋回: 減速と加速の間の旋回瞬間のフルバンク状態で、適切な車高から実舵角をより引き出せる操舵状態を作り出せているか。
-                ・後期旋回: 瞬間旋回後半にて前後ブレーキ操作(特にリアブレーキ)と荷重コントロールでのリアタイヤの変形で、リアが外側軌道へと向かわせるリア操舵状態を作り出せているか。
+                ・ブレーキング〜後期旋回までの評価を行うこと。
+                ・【★走行ラインとアプローチの評価基準】
+                  ブレーキングアプローチの違い、加速状態の違いを以下の2種に層別して評価すること。
+                  1. 立ち上がり重視：バイクが起きて負荷のない加速状態を作り出せている。（走行距離が短く、早めにV字で向きを変えるライン）
+                  2. コーナリング重視：高いスピードを深いバンク角で維持している。（走行距離が長く、ボトム速度が高いU字ライン）
+                  データ要約にある【走行ライン比較】の区間タイムと走行距離の違いからトータルロスを評価し、現状の報告と可能性の提示を行うこと。
+                  また、路面状態の悪さやミュー（摩擦係数）の低さがストロークデータ（小刻みな振動や抜け等）に現れている場合は、リスクとして報告すること。
 
                 ■ [トラクションと車体の乱れ] の評価基準
                 アクセルON時のリアの沈み込みとフロントの伸びを分析し、「効率の良い加速状態を作り出せているか」、車体の乱れ（跳ねやチャタリング）が発生していないか確認と評価すること。
 
                 ■ [燃調・その他の補足基準]
-                ・燃調: AfrやRpmからトルク変動の悪影響がないか確認し、必要に応じた燃調修正案を提示すること。
-                ・リアサスペンションと荷重のリアブレーキコントロール : ストローク奥の部分の活用や、加速時のリア安定感向上について評価すること。
-                ・サスセッティングの主目的: 適切な動的姿勢変化を見つけることである。
+                ・燃調: AfrやRpmからトルク変動の悪影響がないか確認すること。
                 =========================================
 
                 【出力フォーマット】
                 ※以下の1〜5のシンプルな見出しのみを使用して出力してください。
 
                 1. [データ抽出とコース把握]
-                   ・【コーナー名称のシンプルな明示】「Lap進行度 O%」という表記に、AIの持つサーキット知識（{track_name}）から推測した「1コーナー」「第1ヘアピン」などシンプルな名称を割り当てて記述すること（幻覚のS字などは禁止）。秒数表記はしないこと。
-                   ・【採用したGデータの根拠】どのデータソースを採用したかを明記すること。
-                   ・【★ブレーキング減速G トップ2箇所（各3ラップ・タイム併記）】データ要約の「1.6. コーナー別比較」にある減速Gトップ2のリストをそのまま引用すること。
-                   ・【★ストレート加速G（ラップ開始時・各3ラップ・タイム併記）】データ要約にあるラップ開始時の加速Gリストを引用し出力すること。
+                   ・【コーナー名称のシンプルな明示】「Lap進行度 O%」という表記に、AIの持つサーキット知識から推測したシンプルな名称を割り当てて記述すること。
+                   ・【★ブレーキング減速G トップ2箇所】データ要約のリストをそのまま引用すること。
+                   ・【★ストレート加速G（最高速度併記）】データ要約のリストをそのまま引用すること。
                    ・【最大ストロークと安定平均位置】
                 2. [旋回を引き出す前後動作]
                    ・ブレーキング分析: (評価結果を記載)
                    ・倒しこみ動作: (評価結果を記載)
                    ・初期旋回操舵: (評価結果を記載)
                    ・後期旋回操舵: (評価結果を記載)
+                   ・走行ライン: (※【走行ライン比較】の区間タイム・距離・ボトム速度を基に、立ち上がり重視かコーナリング重視かを層別し、ライン違いによるロスと可能性を解析。違いが少ない場合は他の周回との比較を記載。路面リスクがあれば併記すること)
                 3. [加速状態での旋回操舵]
                    (トラクションと車体の乱れに関する評価結果を記載)
                 4. [燃調の影響と総合解決策]
