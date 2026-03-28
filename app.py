@@ -8,6 +8,9 @@ import google.generativeai as genai
 from PIL import Image
 from scipy.signal import savgol_filter  # ★追加：高精度のG算出（SGフィルタ）用
 
+import tempfile
+import os
+import time
 # --- 1. ページ設定（※絶対に一番最初に書く） ---
 st.set_page_config(page_title="タミケンシム - フロントサスシミュレーター/AI分析ツール", layout="wide")
 
@@ -27,7 +30,7 @@ for key, val in default_params.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-# ②AI連携用パラメータ
+# ②AI連携用パラメータ（既存のコードの default_ai_params を以下のように更新）
 default_ai_params = {
     "track_name": "", 
     "tire_info": "リア　TT93PRO ミディアムソフト　100LAP", 
@@ -41,12 +44,18 @@ default_ai_params = {
     "rear_rate_change": 0.0, 
     "rear_stroke_free": 195.0, 
     "rear_stroke_bottom": 117.0,
-    "rear_comp_level": 5, "rear_reb_level": 5
+    "rear_comp_level": 5, "rear_reb_level": 5,
+    # ▼ここから下を新規追加（自由記入や選択状態を保存するため）
+    "tc_memo": "",
+    "data_a_memo": "例：Data_A.csv (フロントバネ5.5Nm, リア車高±0mm)",
+    "data_b_memo": "例：Data_B.csv (フロントバネ5.0Nm, リア車高+2mm)",
+    "track_name_compare": "",
+    "tire_info_compare": "",
+    "run_condition": "単独走行（マイペースでのアタック・クリアラップ）",
+    "target_lap_mode": "指定なし（全体から課題フェーズを検索）",
+    "phase_selection": "進入・フルブレーキング",
+    "user_comment": "例：Lap 9の1コーナー進入でフロントが戻ってこない感覚がある。逆にS字の切り返しは軽快で良い感じなので、そこは犠牲にしたくない。"
 }
-for key, val in default_ai_params.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
-
 # ===============================
 # サイドバー：セッティング管理
 # ===============================
@@ -283,7 +292,7 @@ with col_ai1:
     st.subheader("A. セッティングの状態入力")
 
     if "単一" in analysis_mode:
-        track_name = st.text_input("サーキット名（任意）", value=st.session_state.get("track_name", ""), placeholder="例：近畿スポーツランド、鈴鹿サーキット")
+        track_name = st.text_input("サーキット名（任意）", placeholder="例：近畿スポーツランド、鈴鹿サーキット", key="track_name")
         
         st.markdown("##### ⚙️ 車体・電子制御・ブレーキ設定")
         c_etc1, c_etc2 = st.columns(2)
@@ -293,10 +302,10 @@ with col_ai1:
         with c_etc2:
             tc_base = st.selectbox("トラクションコントロール(TC)基本設定", ["無し", "1 (弱い)", "2", "3", "4", "5 (強い)"])
             eb_base = st.selectbox("エンジンブレーキ(EBC)・アイドル設定", ["無し/固定", "1 (エンブレ弱)", "2", "3", "4", "5 (エンブレ強)"])
-        tc_memo = st.text_input("TC・電子制御 コーナー別指定 (自由記入)", placeholder="例: 最終コーナーのみTCを強めに設定(レベル4)")
+        tc_memo = st.text_input("TC・電子制御 コーナー別指定 (自由記入)", placeholder="例: 最終コーナーのみTCを強めに設定(レベル4)", key="tc_memo")
 
         st.markdown("##### 🛞 タイヤ・空気圧・環境設定")
-        tire_info = st.text_input("タイヤ銘柄・状態（任意）", value=st.session_state.get("tire_info", ""), placeholder="例：リア TT93PRO ミディアムソフト 100LAP")
+        tire_info = st.text_input("タイヤ銘柄・状態（任意）", placeholder="例：リア TT93PRO ミディアムソフト 100LAP", key="tire_info")
         c_tp1, c_tp2, c_tp3 = st.columns(3)
         with c_tp1:
             tire_p_unit = st.selectbox("空気圧 単位", ["kgf/cm2 (kg)", "PSI", "Bar"])
@@ -350,8 +359,8 @@ with col_ai1:
             
     else:
         st.write("💡 **比較する2つのデータ（CSV）の違いをメモしてください。**")
-        data_a_memo = st.text_area("Data A (基準) の条件・ファイル名", value="例：Data_A.csv (フロントバネ5.5Nm, リア車高±0mm)")
-        data_b_memo = st.text_area("Data B (比較) の条件・ファイル名", value="例：Data_B.csv (フロントバネ5.0Nm, リア車高+2mm)")
+        data_a_memo = st.text_area("Data A (基準) の条件・ファイル名", key="data_a_memo")
+        data_b_memo = st.text_area("Data B (比較) の条件・ファイル名", key="data_b_memo")
         # ★ 重複エラー回避のため、keyを設定しています
         track_name = st.text_input("サーキット名（任意）", value="", placeholder="例：近畿スポーツランド", key="track_name_compare")
         tire_info = st.text_area("タイヤ・その他共通設定（前後サス・ディメンション・電子制御等）", value="", placeholder="例：前後タイヤ新品。TCはレベル2固定。", key="tire_info_compare")
@@ -360,7 +369,7 @@ with col_ai1:
 
 with col_ai2:
     st.subheader("B. 解析したい課題と状況の入力")
-    run_condition = st.selectbox("走行状況（タイムや走り方への影響）", ["単独走行（マイペースでのアタック・クリアラップ）", "追い走行（前走者をターゲットにしたアタック）", "混走・トラフィックあり（ペースの乱れあり）"])
+    run_condition = st.selectbox("走行状況（タイムや走り方への影響）", ["単独走行（マイペースでのアタック・クリアラップ）", "追い走行（前走者をターゲットにしたアタック）", "混走・トラフィックあり（ペースの乱れあり）"], key="run_condition")
     
     # ★追加：対象ラップの絞り込み
     target_lap_mode = st.selectbox("解析対象ラップの絞り込み", [
@@ -368,12 +377,11 @@ with col_ai2:
         "ベストラップ付近を中心に解析", 
         "平均値に一番近いラップ付近を中心に解析", 
         "ベストラップと平均値に近いラップを比較して解析"
-    ])
+    ], key="target_lap_mode")
     
-    phase_selection = st.selectbox("課題が発生しているフェーズ（場所）", ["進入・フルブレーキング", "旋回中・コーナリング", "切り返し・S字", "立ち上がり・アクセルオン", "ストレート・全開加速"])
+    phase_selection = st.selectbox("課題が発生しているフェーズ（場所）", ["進入・フルブレーキング", "旋回中・コーナリング", "切り返し・S字", "立ち上がり・アクセルオン", "ストレート・全開加速"], key="phase_selection")
     st.caption("⚠️ **注意:** ロガーの画面とCSVデータで「Lap数」がズレている場合があります。")
-    user_comment = st.text_area("具体的な悩み・知りたいこと（★良いと感じている部分もあれば記載）", value="例：Lap 9の1コーナー進入でフロントが戻ってこない感覚がある。逆にS字の切り返しは軽快で良い感じなので、そこは犠牲にしたくない。", height=150)
-
+    user_comment = st.text_area("具体的な悩み・知りたいこと（★良いと感じている部分もあれば記載）", placeholder="例：Lap 9の1コーナー進入でフロントが戻ってこない感覚がある。逆にS字の切り返しは軽快で良い感じなので、そこは犠牲にしたくない。", height=150, key="user_comment")
 # ===============================
 # ★ AI連携用ファイルアップロードと実行
 # ===============================
@@ -402,6 +410,7 @@ with col_out2:
 
     # ★復活：燃調マップ等の画像アップロード
     uploaded_images = st.file_uploader("燃調マップ・設定画面のスクショ等があればアップロード（任意）", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+    uploaded_videos = st.file_uploader("比較・解析用動画（5〜10秒にカットしたmp4等/任意）", type=["mp4", "mov", "avi"], accept_multiple_files=True)
 
     # カラム自動検出UI
     selected_cols = []
@@ -444,7 +453,28 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
-
+                # ▼ここから追加：動画ファイルのGeminiアップロードと処理待機
+                video_files_for_api = []
+                if uploaded_videos:
+                    for video_file in uploaded_videos:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
+                            tmp.write(video_file.read())
+                            tmp_path = tmp.name
+                        
+                        st.info(f"🎥 動画 '{video_file.name}' をAIサーバーへ送信中...")
+                        g_file = genai.upload_file(path=tmp_path)
+                        
+                        with st.spinner("AIが動画を分析可能な状態に変換しています（数秒お待ちください）..."):
+                            while g_file.state.name == "PROCESSING":
+                                time.sleep(2)
+                                g_file = genai.get_file(g_file.name)
+                                
+                        if g_file.state.name == "FAILED":
+                            st.error(f"動画 '{video_file.name}' の処理に失敗しました。")
+                        else:
+                            video_files_for_api.append(g_file)
+                        os.remove(tmp_path) 
+                # ▲ここまで追加
                 stroke_range_text = df_export.to_csv(index=False)
 
                 log_contents = ""
@@ -843,6 +873,9 @@ if st.button("AIに事前処理（ADA）をかけて解析させる", type="prim
                     for img_file in uploaded_images:
                         img = Image.open(img_file)
                         api_request_data.append(img)
+                # ▼ここを追加：動画データをリクエストに含める
+                if video_files_for_api:
+                    api_request_data.extend(video_files_for_api)
 
                 response = model.generate_content(api_request_data)
 
